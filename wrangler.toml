@@ -1,0 +1,10 @@
+name = "tw-stock-analyzer"
+main = "src/index.ts"
+compatibility_date = "2024-03-01"
+
+[ai]
+binding = "AI"
+
+[vars]
+# TAVILY_API_KEY = "your-tavily-api-key"
+# Add your Tavily API Key to Cloudflare Secrets: wrangler secret put TAVILY_API_KEY
