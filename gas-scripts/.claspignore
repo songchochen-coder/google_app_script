@@ -1,0 +1,6 @@
+# clasp 不上傳的檔案
+node_modules/
+.env
+*.key
+*.log
+creds.json

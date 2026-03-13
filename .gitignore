@@ -5,3 +5,9 @@ dist/
 package-lock.json
 wrangler.toml.sample
 .DS_Store
+
+# Google Apps Script
+.env
+*.key
+*.log
+gas-scripts/creds.json
