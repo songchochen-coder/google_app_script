@@ -75,7 +75,8 @@ function callGemini(prompt, config) {
         continue;
       }
 
-      return 'AI 分析失敗：' + (json.error ? json.error.message : response.getContentText());
+      Logger.log('⚠️  API 回傳異常 (' + statusCode + ')：' + response.getContentText());
+      return '';
     } catch (e) {
       if (retryCount < maxRetries) {
         Utilities.sleep(waitTime);
@@ -83,32 +84,50 @@ function callGemini(prompt, config) {
         waitTime *= 2;
         continue;
       }
-      return 'API 呼叫出錯：' + e.toString();
+      Logger.log('❌ API 呼叫出錯：' + e.toString());
+      return '';
     }
   }
 }
 
 // ── 解析 AI 批次回傳（唯一版本）───────────────────────────────
 /**
- * 解析 "代號:說明" 的多行格式，相容全形/半形冒號、大小寫。
- * @param {string} text - AI 回傳的多行文字
+ * 解析 "代號:說明" 或 "名稱:說明" 的多行格式。
+ * @param {string} text  - AI 回傳的多行文字
+ * @param {Array}  [stocks] - 可選，{ symbol, name } 陣列，用於名稱→代號反查
  * @returns {object} { symbol: theme }
  */
-function parseBatchResponse(text) {
+function parseBatchResponse(text, stocks) {
+  // 建立名稱→代號反查表（忽略大小寫、全半形空白）
+  const nameToSymbol = {};
+  if (stocks && stocks.length) {
+    stocks.forEach(s => {
+      nameToSymbol[s.name.trim()] = s.symbol;
+    });
+  }
+
   const result = {};
+  if (!text) return result;
+
   const lines = text.split('\n');
   lines.forEach(line => {
+    line = line.trim();
     // 找第一個冒號（半形或全形）
     const idx = line.indexOf(':') !== -1 ? line.indexOf(':') : line.indexOf('：');
     if (idx === -1) return;
 
-    let symbol = line.substring(0, idx).trim().toUpperCase();
+    let key = line.substring(0, idx).trim();
     const theme = line.substring(idx + 1).trim();
+    if (!key || !theme) return;
 
-    // 移除交易所前綴，如 "NASDAQ:NVDA" → "NVDA"
-    if (symbol.includes(':')) symbol = symbol.split(':').pop();
+    // 嘗試移除前綴（如 "NASDAQ:NVDA" → "NVDA"）
+    if (key.includes(':')) key = key.split(':').pop().trim();
 
-    if (symbol && theme) result[symbol] = theme;
+    // 優先直接用 key 當 symbol；若名稱→代號反查成功則替換
+    const symbol = nameToSymbol[key] || key;
+    result[symbol] = theme;
+    // 同時儲存原始 key，提高命中率
+    if (symbol !== key) result[key] = theme;
   });
   return result;
 }

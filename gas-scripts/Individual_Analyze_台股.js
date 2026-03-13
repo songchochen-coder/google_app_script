@@ -37,16 +37,20 @@ ${stockListStr}
 
 # Constraints:
 1. 使用【繁體中文】回答。
-2. 嚴格遵守格式，每行一檔，格式為：代號:分析內容。
-3. 分析內容請精簡在 30 字以內，直擊痛點。
-4. 請勿包含開場白或結尾文字。
+2. 【嚴格】遵守格式：每行一檔，格式為「股票代號:分析內容」
+   - 代號必須是【純數字】，例如：2330、3008、6239
+   - 禁止用股票名稱當 key，禁止加括號、交易所代碼或其他前綴
+   - 例如正確：2330:受惠AI伺服器散熱需求，法人加碼買超
+   - 例如錯誤：台積電(2330):... 或 TWSE:2330:...
+3. 分析內容精簡在 30 字以內，直擊痛點。
+4. 禁止開場白、結尾語，直接輸出。
     `;
 
     Logger.log(`正在分析第 ${i + 1} 到 ${Math.min(i + batchSize, stocks.length)} 檔股票...`);
 
     try {
-      const response = callGemini(prompt, { temperature: 0.3, maxOutputTokens: 800 });
-      const analysisMap = parseBatchResponse(response);
+      const response = callGemini(prompt, { temperature: 0.2, maxOutputTokens: 800 });
+      const analysisMap = parseBatchResponse(response, batch); // 傳入 batch 支援名稱反查
 
       batch.forEach(stock => {
         const theme = analysisMap[stock.symbol] || '已完成分析 (請確認資料格式)';
