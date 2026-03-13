@@ -29,14 +29,16 @@ function runIndividualAnalyze() {
     const batch = stocks.slice(i, i + batchSize);
     const stockListStr = batch.map(s => `${s.name}(${s.symbol})`).join('\n');
 
-    const prompt = `你是台股市場研究員，請分析以下台股近期月漲幅超過20%的主要驅動原因。
+    const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy年MM月dd日');
+    const prompt = `你是台股市場研究員，今天是 ${today}。
+請根據你所知最新的市場資訊（2025年至今），分析以下台股近期月漲幅超過20%的主要驅動題材。
 
 ${stockListStr}
 
 輸出規定：
-- 每行一檔股票，格式為 股票代號:分析內容（例如：6217:受惠AI伺服器連接器需求強勁）
+- 每行一檔股票，格式為 股票代號:分析內容（例如：6217:AI伺服器連接器需求強勁，Q1訂單能見度高）
 - 代號用純數字，不加括號或前綴
-- 分析內容30字以內
+- 分析內容30字以內，聚焦最新事件（法說會、財報、訂單、政策）
 - 不要開場白，直接輸出所有 ${batch.length} 檔的分析`;
 
     Logger.log(`正在分析第 ${i + 1} 到 ${Math.min(i + batchSize, stocks.length)} 檔股票...`);
