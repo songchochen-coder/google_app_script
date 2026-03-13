@@ -52,7 +52,7 @@ function runIndividualAnalyze() {
       batch.forEach(stock => {
         const theme = analysisMap[stock.symbol];
         if (theme) {
-          const tvUrl = `https://www.tradingview.com/chart/?symbol=TWSE:${stock.symbol}`;
+          const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
           const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
           sheet.appendRow([stock.symbol, nameLink, stock.change, theme, now]);
         } else {
@@ -70,7 +70,7 @@ function runIndividualAnalyze() {
           const retryResp = callGemini(retryPrompt, { temperature: 0.2, maxOutputTokens: 200 });
           const retryMap = parseBatchResponse(retryResp, [stock]);
           const theme = retryMap[stock.symbol] || retryResp.trim() || '無法取得分析';
-          const tvUrl = `https://www.tradingview.com/chart/?symbol=TWSE:${stock.symbol}`;
+          const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
           const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
           sheet.appendRow([stock.symbol, nameLink, stock.change, theme, now]);
           Utilities.sleep(300);
@@ -177,6 +177,7 @@ function fetchTradingViewData() {
 
     return {
       data: data.data.map(item => ({
+        exchange: item.s.split(':')[0],   // TWSE 或 TPEX
         symbol: item.s.split(':')[1],
         name: item.d[1],
         change: item.d[2] ? item.d[2].toFixed(2) : '0.00'
