@@ -18,7 +18,9 @@ function runMarketStrategy() {
   }
 
   // 1. 讀取並前處理資料
-  const data = sourceSheet.getDataRange().getDisplayValues(); // 使用 DisplayValues 確保拿到文字
+  const dataRange = sourceSheet.getDataRange();
+  const data = dataRange.getDisplayValues(); // 使用 DisplayValues 確保拿到文字
+  const formulas = dataRange.getFormulas();  // 取得原本儲存的 HYPERLINK 公式
   if (data.length <= 1) {
     Logger.log('⚠️ 「台股存檔資料」中沒有足夠資料。');
     try { SpreadsheetApp.getUi().alert('「台股存檔資料」中沒有足夠資料。'); } catch (e) { }
@@ -28,13 +30,21 @@ function runMarketStrategy() {
   const stocks = [];
   for (let i = 1; i < data.length; i++) {
     if (data[i][0]) {
-      // 假設遇到有 HYPERLINK 公式的儲存格，使用 Text 取值（或簡單取字串）
-      // 因為 getDisplayValues() 會拿到純文字，所以直接可用
+      let tvUrl = `https://www.tradingview.com/chart/?symbol=TWSE:${data[i][0]}`; // 預設值
+      const formula = formulas[i][1]; // 第二欄是股票名稱（帶有 HYPERLINK）
+      if (formula && formula.toUpperCase().includes('HYPERLINK(')) {
+        const match = formula.match(/"(https?:\/\/[^"]+)"/);
+        if (match) {
+          tvUrl = match[1];
+        }
+      }
+
       stocks.push({
         symbol: data[i][0],
         name: data[i][1],
         change: parseFloat(data[i][2]) || 0,
-        theme: data[i][3]
+        theme: data[i][3],
+        tvUrl: tvUrl
       });
     }
   }
@@ -51,7 +61,7 @@ function runMarketStrategy() {
 
   // 3. 渲染 Google Sheets 儀表板
   Logger.log('🎨 正在繪製量化儀表板...');
-  buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson);
+  buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson, stocks);
 
   try {
     SpreadsheetApp.getUi().alert('🎯 台股專業量化儀表板已生成！\n請查看「量化儀表板_台股」工作表。');
@@ -189,7 +199,15 @@ function parseJSONSafely(str) {
 // 視覺化儀表板渲染模組 (Dashboard Builder)
 // ==============================================================================
 
-function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson) {
+function getTvUrl(symbol, stocks) {
+  const stock = stocks.find(s => String(s.symbol) === String(symbol));
+  if (stock && stock.tvUrl) {
+    return stock.tvUrl;
+  }
+  return `https://www.tradingview.com/chart/?symbol=TWSE:${symbol}`;
+}
+
+function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson, stocks) {
   const sheetName = '量化儀表板_台股';
   let sheet = ss.getSheetByName(sheetName);
   if (sheet) {
@@ -295,8 +313,10 @@ function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson) {
 
       // 領頭羊
       if (group.leader) {
+        const url = getTvUrl(group.leader.symbol, stocks);
+        const nameLink = `=HYPERLINK("${url}", "${group.leader.name} (${group.leader.symbol})")`;
         sheet.getRange(currentRow, 2).setValue('👑 領頭羊').setFontColor('#FFD700');
-        sheet.getRange(currentRow, 3).setValue(`${group.leader.name} (${group.leader.symbol})`).setFontWeight('bold');
+        sheet.getRange(currentRow, 3).setValue(nameLink).setFontWeight('bold');
         sheet.getRange(currentRow, 4, 1, 3).merge().setValue(group.leader.reason).setWrap(true);
         currentRow++;
       }
@@ -304,8 +324,10 @@ function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson) {
       // 補漲股 (可能有多支)
       if (group.laggards && group.laggards.length > 0) {
         group.laggards.forEach((laggard, idx) => {
+          const url = getTvUrl(laggard.symbol, stocks);
+          const nameLink = `=HYPERLINK("${url}", "${laggard.name} (${laggard.symbol})")`;
           sheet.getRange(currentRow, 2).setValue(idx === 0 ? '🚀 補漲/外溢' : '').setFontColor(colors.accentUp);
-          sheet.getRange(currentRow, 3).setValue(`${laggard.name} (${laggard.symbol})`);
+          sheet.getRange(currentRow, 3).setValue(nameLink);
           sheet.getRange(currentRow, 4, 1, 3).merge().setValue(laggard.reason).setWrap(true).setFontColor(colors.textSub);
           currentRow++;
         });
