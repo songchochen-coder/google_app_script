@@ -10,7 +10,7 @@
  */
 
 // ── 模型設定 ────────────────────────────────────────────────────
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3-flash-preview';
 
 // ── 初始化：設定 API Key（只需執行一次）────────────────────────
 function setup() {
