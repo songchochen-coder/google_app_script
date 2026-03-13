@@ -1,10 +1,11 @@
 /**
  * Individual_Analyze_台股.js
  * ==========================
- * 從 TradingView 抓取台股高動能資料，批次呼叫 AI 分析個股題材。
+ * 從 TradingView 抓取台股高動能資料，結合鉅亨網最新新聞，批次呼叫 AI 分析個股題材。
  * 共用函式（callGemini, parseBatchResponse）定義於 Global_Config.js。
  */
 
+// ── 主程式 ────────────────────────────────────────────────────
 function runIndividualAnalyze() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('台股存檔資料') || ss.insertSheet('台股存檔資料');
@@ -20,40 +21,62 @@ function runIndividualAnalyze() {
     return;
   }
 
+  // 抓取鉅亨網最新台股新聞（作為 AI 上下文）
+  Logger.log('📰 正在抓取鉅亨網最新新聞...');
+  const newsContext = fetchCnyesNews();
+  if (newsContext) {
+    Logger.log('✅ 已取得最新新聞作為分析依據');
+  }
+
   const stocks = fetchResult.data;
-  const batchSize = 5; // 降低批次大小，減少截斷風險
+  const batchSize = 5;
   const now = new Date();
+  const today = Utilities.formatDate(now, 'Asia/Taipei', 'yyyy年MM月dd日');
   Logger.log(`✅ 找到 ${stocks.length} 檔股票，開始批次 AI 題材分析...`);
 
   for (let i = 0; i < stocks.length; i += batchSize) {
     const batch = stocks.slice(i, i + batchSize);
     const stockListStr = batch.map(s => `${s.name}(${s.symbol})`).join('\n');
 
-    const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy年MM月dd日');
-    const prompt = `你是台股市場研究員，今天是 ${today}。
-請根據你所知最新的市場資訊（2025年至今），分析以下台股近期月漲幅超過20%的主要驅動題材。
-
-${stockListStr}
-
-輸出規定：
-- 每行一檔股票，格式為 股票代號:分析內容（例如：6217:AI伺服器連接器需求強勁，Q1訂單能見度高）
-- 代號用純數字，不加括號或前綴
-- 分析內容30字以內，聚焦最新事件（法說會、財報、訂單、政策）
-- 不要開場白，直接輸出所有 ${batch.length} 檔的分析`;
+    const prompt = buildPrompt(today, stockListStr, batch.length, newsContext);
 
     Logger.log(`正在分析第 ${i + 1} 到 ${Math.min(i + batchSize, stocks.length)} 檔股票...`);
 
     try {
       const response = callGemini(prompt, { temperature: 0.2, maxOutputTokens: 3000 });
-      Logger.log(`=== 批次 ${i + 1}-${Math.min(i + batchSize, stocks.length)} AI 原始回傳 ===\n${response}\n===`);
-      const analysisMap = parseBatchResponse(response, batch); // 傳入 batch 支援名稱反查
+      Logger.log(`=== 批次 ${i + 1}-${Math.min(i + batchSize, stocks.length)} AI 回傳 ===\n${response}\n===`);
+      const analysisMap = parseBatchResponse(response, batch);
 
+      // ── 寫入工作表，並收集未匹配的股票 ──
+      const unmatched = [];
       batch.forEach(stock => {
-        const theme = analysisMap[stock.symbol] || '已完成分析 (請確認資料格式)';
-        sheet.appendRow([stock.symbol, stock.name, stock.change, theme, now]);
+        const theme = analysisMap[stock.symbol];
+        if (theme) {
+          sheet.appendRow([stock.symbol, stock.name, stock.change, theme, now]);
+        } else {
+          unmatched.push(stock);
+        }
       });
+
+      // ── 對未匹配的股票單獨重試 ──
+      if (unmatched.length > 0) {
+        Logger.log(`⚠️ ${unmatched.length} 檔未匹配，逐一重試：${unmatched.map(s => s.symbol).join(', ')}`);
+        unmatched.forEach(stock => {
+          const retryPrompt = `你是台股研究員，今天 ${today}。
+請用一句話（30字以內）說明台股 ${stock.name}(${stock.symbol}) 近期漲幅超過20%的核心原因。
+格式：${stock.symbol}:原因`;
+          const retryResp = callGemini(retryPrompt, { temperature: 0.2, maxOutputTokens: 200 });
+          const retryMap = parseBatchResponse(retryResp, [stock]);
+          const theme = retryMap[stock.symbol] || retryResp.trim() || '無法取得分析';
+          sheet.appendRow([stock.symbol, stock.name, stock.change, theme, now]);
+          Utilities.sleep(300);
+        });
+      }
+
     } catch (e) {
       Logger.log(`批次處理異常: ${e.message}`);
+      // 異常時仍寫入佔位，不漏行
+      batch.forEach(stock => sheet.appendRow([stock.symbol, stock.name, stock.change, '分析異常', now]));
     }
 
     Utilities.sleep(500);
@@ -62,9 +85,63 @@ ${stockListStr}
   Logger.log('✨ 台股個股分析完成！資料已更新至「台股存檔資料」工作表。');
 }
 
+// ── 建構 Prompt ──────────────────────────────────────────────
+function buildPrompt(today, stockListStr, count, newsContext) {
+  const newsSection = newsContext
+    ? `\n【今日最新台股新聞（請優先參考）】\n${newsContext}\n`
+    : '';
+
+  return `你是台股市場研究員，今天是 ${today}。
+請根據下方最新新聞與你的知識，分析以下台股近期月漲幅超過20%的主要驅動題材。
+${newsSection}
+【待分析股票】
+${stockListStr}
+
+輸出規定：
+- 每行一檔，格式：股票代號:分析內容（例如：6217:AI伺服器連接器出貨強勁，Q1訂單能見度高）
+- 代號用純數字，不加括號或前綴
+- 分析30字以內，聚焦最新事件（法說會/財報/訂單/政策）
+- 不要開場白，直接輸出全部 ${count} 檔`;
+}
+
+// ── 鉅亨網 RSS 抓取（台股焦點新聞）────────────────────────────
 /**
- * TradingView 台股篩選器
+ * 抓取鉅亨網台股頻道 RSS，回傳最新 N 則標題作為字串
+ * @param {number} [maxItems=15] 最多取幾則
+ * @returns {string} 新聞標題字串，失敗則回傳空字串
  */
+function fetchCnyesNews(maxItems) {
+  maxItems = maxItems || 15;
+  const rssUrl = 'https://news.cnyes.com/rss/cat/tw_stock';
+
+  try {
+    const response = UrlFetchApp.fetch(rssUrl, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      Logger.log('⚠️ 鉅亨網 RSS 回應碼：' + response.getResponseCode());
+      return '';
+    }
+
+    const xml = response.getContentText();
+    const document = XmlService.parse(xml);
+    const root = document.getRootElement();
+    const channel = root.getChild('channel');
+    const items = channel.getChildren('item');
+
+    const headlines = [];
+    for (let i = 0; i < Math.min(items.length, maxItems); i++) {
+      const title = items[i].getChildText('title');
+      const pubDate = items[i].getChildText('pubDate');
+      if (title) headlines.push(`- ${title}${pubDate ? '（' + pubDate.substring(0, 16) + '）' : ''}`);
+    }
+
+    return headlines.join('\n');
+  } catch (e) {
+    Logger.log('⚠️ 鉅亨網新聞抓取失敗：' + e.toString());
+    return '';
+  }
+}
+
+// ── TradingView 台股篩選器 ────────────────────────────────────
 function fetchTradingViewData() {
   const url = 'https://scanner.tradingview.com/taiwan/scan';
   const payload = {
