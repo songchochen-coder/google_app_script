@@ -21,7 +21,7 @@ function runIndividualAnalyze() {
   }
 
   const stocks = fetchResult.data;
-  const batchSize = 10;
+  const batchSize = 5; // 降低批次大小，減少截斷風險
   const now = new Date();
   Logger.log(`✅ 找到 ${stocks.length} 檔股票，開始批次 AI 題材分析...`);
 
@@ -29,27 +29,21 @@ function runIndividualAnalyze() {
     const batch = stocks.slice(i, i + batchSize);
     const stockListStr = batch.map(s => `${s.name}(${s.symbol})`).join('\n');
 
-    const prompt = `
-# Role: 你是一位精通台股市場與產業供應鏈的資深研究員。
-# Task: 分析以下台股近期月漲幅 > 20% 的主要原因（如：營收成長、法說會利多、特定產業需求或政策支持）。
-# Data:
+    const prompt = `你是台股市場研究員，請分析以下台股近期月漲幅超過20%的主要驅動原因。
+
 ${stockListStr}
 
-# Constraints:
-1. 使用【繁體中文】回答。
-2. 【嚴格】遵守格式：每行一檔，格式為「股票代號:分析內容」
-   - 代號必須是【純數字】，例如：2330、3008、6239
-   - 禁止用股票名稱當 key，禁止加括號、交易所代碼或其他前綴
-   - 例如正確：2330:受惠AI伺服器散熱需求，法人加碼買超
-   - 例如錯誤：台積電(2330):... 或 TWSE:2330:...
-3. 分析內容精簡在 30 字以內，直擊痛點。
-4. 禁止開場白、結尾語，直接輸出。
-    `;
+輸出規定：
+- 每行一檔股票，格式為 股票代號:分析內容（例如：6217:受惠AI伺服器連接器需求強勁）
+- 代號用純數字，不加括號或前綴
+- 分析內容30字以內
+- 不要開場白，直接輸出所有 ${batch.length} 檔的分析`;
 
     Logger.log(`正在分析第 ${i + 1} 到 ${Math.min(i + batchSize, stocks.length)} 檔股票...`);
 
     try {
-      const response = callGemini(prompt, { temperature: 0.2, maxOutputTokens: 800 });
+      const response = callGemini(prompt, { temperature: 0.2, maxOutputTokens: 3000 });
+      Logger.log(`=== 批次 ${i + 1}-${Math.min(i + batchSize, stocks.length)} AI 原始回傳 ===\n${response}\n===`);
       const analysisMap = parseBatchResponse(response, batch); // 傳入 batch 支援名稱反查
 
       batch.forEach(stock => {
