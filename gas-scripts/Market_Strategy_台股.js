@@ -12,14 +12,16 @@ function runMarketStrategy() {
   const sourceSheet = ss.getSheetByName('台股存檔資料');
 
   if (!sourceSheet) {
-    SpreadsheetApp.getUi().alert('找不到「台股存檔資料」工作表，請先執行台股個股分析。');
+    Logger.log('⚠️ 找不到「台股存檔資料」工作表，請先執行台股個股分析。');
+    try { SpreadsheetApp.getUi().alert('找不到「台股存檔資料」工作表，請先執行台股個股分析。'); } catch (e) { }
     return;
   }
 
   // 1. 讀取並前處理資料
   const data = sourceSheet.getDataRange().getDisplayValues(); // 使用 DisplayValues 確保拿到文字
   if (data.length <= 1) {
-    SpreadsheetApp.getUi().alert('「台股存檔資料」中沒有足夠資料。');
+    Logger.log('⚠️ 「台股存檔資料」中沒有足夠資料。');
+    try { SpreadsheetApp.getUi().alert('「台股存檔資料」中沒有足夠資料。'); } catch (e) { }
     return;
   }
 
@@ -51,7 +53,11 @@ function runMarketStrategy() {
   Logger.log('🎨 正在繪製量化儀表板...');
   buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson);
 
-  SpreadsheetApp.getUi().alert('🎯 台股專業量化儀表板已生成！\n請查看「量化儀表板_台股」工作表。');
+  try {
+    SpreadsheetApp.getUi().alert('🎯 台股專業量化儀表板已生成！\n請查看「量化儀表板_台股」工作表。');
+  } catch (e) {
+    Logger.log('🎯 台股專業量化儀表板已生成！請查看「量化儀表板_台股」工作表。');
+  }
 }
 
 // ==============================================================================
@@ -159,7 +165,7 @@ ${JSON.stringify(leadershipJson)}
  * 專門給要求 JSON 輸出的 API 呼叫，設定較低的 temperature 確保格式穩定
  */
 function callGeminiJSON(prompt) {
-  const result = callGemini(prompt, { temperature: 0.1, maxOutputTokens: 2000 });
+  const result = callGemini(prompt, { temperature: 0.1, maxOutputTokens: 8192 });
   return result;
 }
 
