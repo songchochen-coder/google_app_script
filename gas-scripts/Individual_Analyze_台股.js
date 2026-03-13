@@ -112,7 +112,8 @@ ${stockListStr}
  */
 function fetchCnyesNews(maxItems) {
   maxItems = maxItems || 15;
-  const rssUrl = 'https://news.cnyes.com/rss/cat/tw_stock';
+  // 鉅亨網已停用 RSS，改用 Google News 台股即時新聞
+  const rssUrl = 'https://news.google.com/rss/search?q=%E5%8F%B0%E8%82%A1&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
 
   try {
     const response = UrlFetchApp.fetch(rssUrl, { muteHttpExceptions: true });
