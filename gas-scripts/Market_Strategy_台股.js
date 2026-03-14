@@ -49,19 +49,13 @@ function runMarketStrategy() {
     }
   }
 
-  // 2. 進行 AI 深度分析 (要求回傳 JSON)
-  Logger.log('🚀 正在進行 AI 題材聚類與板塊分析...');
-  const clusteringJson = analyzeThematicClustering(stocks);
-
-  Logger.log('🚀 正在挖掘領頭羊與補漲股...');
-  const leadershipJson = detectLeadersAndLaggards(clusteringJson, stocks);
-
-  Logger.log('🚀 正在生成總體市場策略...');
-  const strategyJson = generateMarketStrategy(clusteringJson, leadershipJson);
+  // 2. 進行 AI 深度分析 (要求一次回傳整合的 JSON，減少 AI 多次呼叫造成的落差)
+  Logger.log('🚀 正在進行 AI 盤前市場策略與板塊分析...');
+  const strategyJson = analyzeMarketAndSectors(stocks);
 
   // 3. 渲染 Google Sheets 儀表板
   Logger.log('🎨 正在繪製量化儀表板...');
-  buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson, stocks);
+  buildQuantDashboard(ss, strategyJson, stocks);
 
   try {
     SpreadsheetApp.getUi().alert('🎯 台股專業量化儀表板已生成！\n請查看「量化儀表板_台股」工作表。');
@@ -77,95 +71,55 @@ function runMarketStrategy() {
 /**
  * Task 1: 題材聚類與板塊輪動分析
  */
-function analyzeThematicClustering(stocks) {
+// ==============================================================================
+// AI 分析模組
+// ==============================================================================
+
+/**
+ * Task 1: 盤前分析與板塊輪動綜合判斷
+ */
+function analyzeMarketAndSectors(stocks) {
   const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
-  const stockList = stocks.map(s => `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}`).join('\n');
+  const stockListStr = stocks.map(s => `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}`).join('\n');
 
   const prompt = `你是頂尖的量化基金經理人，今天是 ${today}。
-請根據以下高動能股票清單（月漲幅超過20%），自動進行【題材聚類與板塊資金流向分析】。
+請根據以下高動能股票清單（月漲幅超過20%），自動進行【盤前交易策略與板塊分析】。
 
 【原始資料】
-${stockList}
+${stockListStr}
 
 【任務要求】
-1. 將這些股票依據「真實產業/題材」聚類為 3~5 大強勢板塊。
-2. 評估該板塊的資金動能強度（1-10分）。
-3. 給出對該板塊輪動趨勢的簡短看法。
+1. 找出3~5個市場主流板塊
+2. 每個板塊找出領頭羊
+3. 找出補漲潛力股
+4. 判斷市場情緒
+5. 提出盤前操作策略
 
-【強制輸出】
-你必須回傳純 JSON 格式，不要包含 \`\`\`json 等 Markdown 標記，直接輸出：
+【強制輸出結構】
+你必須回傳純 JSON 格式，不要包含 \`\`\`json 等 Markdown 標記，直接依據以下 Schema 輸出：
 {
-  "date": "202X-XX-XX",
+  "market_view": "市場定調...（50字以內）",
+  "risk_warning": "風險提示...（30字以內）",
+  "strategies": ["核心策略一", "核心策略二", "核心策略三"],
   "sectors": [
     {
-      "sector_name": "AI伺服器供應鏈",
+      "sector_name": "板塊名稱 (例如: AI伺服器供應鏈)",
       "momentum_score": 9,
-      "trend_analysis": "資金持續湧入散熱與滑軌，有擴散至電源跡象。",
-      "key_stocks": ["2330", "3017", "3324"]
-    }
-  ]
-}`;
-
-  const jsonStr = callGeminiJSON(prompt);
-  return parseJSONSafely(jsonStr);
-}
-
-/**
- * Task 2: 領頭羊與補漲股偵測
- */
-function detectLeadersAndLaggards(clusteringJson, stocks) {
-  if (!clusteringJson || !clusteringJson.sectors) return {};
-
-  const prompt = `你是專精於「板塊輪動與籌碼擴散」的台股操盤手。
-以下是目前的強勢板塊聚類結果：
-${JSON.stringify(clusteringJson)}
-
-請找出每個板塊中的「絕對領頭羊（Leader）」以及「具備潛力的補漲股或外溢受惠股（Laggard/Spillover）」。
-補漲股可以是清單內的落後者，也可以是你憑專業知識找出「尚未出現在清單中，但同屬該產業且基期較低」的台股標的。
-
-【強制輸出】
-必須回傳純 JSON 格式，不可有 Markdown 標記：
-{
-  "leadership": [
-    {
-      "sector_name": "AI伺服器供應鏈",
-      "leader": {"symbol": "2330", "name": "台積電", "reason": "先進封裝技術護城河"},
+      "analysis": "強勢板塊分析...資金流向判斷",
+      "leader": {"symbol": "2330", "name": "台積電", "reason": "領頭羊理由"},
       "laggards": [
-        {"symbol": "XXXX", "name": "XXX", "reason": "同屬散熱板塊，本益比偏低"}
+        {"symbol": "XXXX", "name": "XXX", "reason": "補漲潛力股理由"}
       ]
     }
-  ]
+  ],
+  "watchlist": ["2330 台積電", "2317 鴻海", "3231 緯創"]
 }`;
 
   const jsonStr = callGeminiJSON(prompt);
   return parseJSONSafely(jsonStr);
 }
 
-/**
- * Task 3: 總體市場策略
- */
-function generateMarketStrategy(clusteringJson, leadershipJson) {
-  if (!clusteringJson || !leadershipJson) return {};
 
-  const prompt = `你是管理百億資金的台股投資長。
-目前的盤面板塊輪動如下：
-${JSON.stringify(clusteringJson)}
-目前的領頭羊與補漲輪廓如下：
-${JSON.stringify(leadershipJson)}
-
-請結合當前總體經濟環境與上述數據，給出今日/本週的具體交易策略。
-
-【強制輸出】
-必須回傳純 JSON 格式，不可有 Markdown 標記：
-{
-  "market_view": "強勢股續強，資金呈現...（50字以內）",
-  "action_plan": ["策略一...", "策略二...", "策略三..."],
-  "risk_warning": "當前需注意的風險...（30字以內）"
-}`;
-
-  const jsonStr = callGeminiJSON(prompt);
-  return parseJSONSafely(jsonStr);
-}
 
 // ==============================================================================
 // 工具函式
@@ -207,7 +161,7 @@ function getTvUrl(symbol, stocks) {
   return `https://www.tradingview.com/chart/?symbol=TWSE:${symbol}`;
 }
 
-function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson, stocks) {
+function buildQuantDashboard(ss, strategyJson, stocks) {
   const sheetName = '量化儀表板_台股';
   let sheet = ss.getSheetByName(sheetName);
   if (sheet) {
@@ -233,7 +187,7 @@ function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson, s
 
   let currentRow = 2; // 從第 2 列開始畫
 
-  // ── 區塊 A：主標題與市場總覽 ────────────────────────────────────
+  // ── 標題 ──────────────────────────────────────────────────────────
   const titleRange = sheet.getRange(currentRow, 2, 1, 5);
   titleRange.merge()
     .setValue('台股量化盤前策略儀表板')
@@ -246,8 +200,9 @@ function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson, s
   sheet.setRowHeight(currentRow, 40);
   currentRow += 2;
 
-  if (strategyJson && strategyJson.market_view) {
-    sheet.getRange(currentRow, 2).setValue('大盤定調：').setFontWeight('bold').setFontColor(colors.textSub);
+  if (strategyJson) {
+    // ── 1 市場定調 & 2 風險提示 ───────────────────────────────────────
+    sheet.getRange(currentRow, 2).setValue('大盤情緒：').setFontWeight('bold').setFontColor(colors.textSub);
     sheet.getRange(currentRow, 3, 1, 4).merge().setValue(strategyJson.market_view).setFontColor(colors.textMain);
     currentRow++;
 
@@ -255,85 +210,68 @@ function buildQuantDashboard(ss, clusteringJson, leadershipJson, strategyJson, s
     sheet.getRange(currentRow, 3, 1, 4).merge().setValue(strategyJson.risk_warning).setFontColor(colors.accentWarn);
     currentRow += 2;
 
-    // 核心操作策略 (三個 bullet points)
-    sheet.getRange(currentRow, 2, 1, 5).merge().setValue('核心操作計畫').setFontWeight('bold').setBackground(colors.subHeaderBg);
+    // ── 3 三個核心策略 ───────────────────────────────────────────────
+    sheet.getRange(currentRow, 2, 1, 5).merge().setValue('盤前核心策略').setFontWeight('bold').setBackground(colors.subHeaderBg);
     currentRow++;
-    const plans = strategyJson.action_plan || [];
+    const plans = strategyJson.strategies || [];
     plans.forEach((plan, idx) => {
       sheet.getRange(currentRow, 2).setValue(`策略 ${idx + 1}`);
       sheet.getRange(currentRow, 3, 1, 4).merge().setValue(plan).setWrap(true);
       currentRow++;
     });
     currentRow++;
-  }
 
-  // ── 區塊 B：強勢板塊與資金輪動 ──────────────────────────────────
-  sheet.getRange(currentRow, 2, 1, 5).merge()
-    .setValue('🔥 強勢板塊資金輪動聚類')
-    .setFontSize(12)
-    .setFontWeight('bold')
-    .setBackground(colors.subHeaderBg)
-    .setFontColor(colors.textMain);
-  currentRow++;
+    // ── 4 強勢板塊分析 & 5 領頭羊與補漲股 ─────────────────────────────
+    sheet.getRange(currentRow, 2, 1, 5).merge()
+      .setValue('🔥 主流板塊與輪動資金追蹤')
+      .setFontSize(12)
+      .setFontWeight('bold')
+      .setBackground(colors.subHeaderBg)
+      .setFontColor(colors.textMain);
+    currentRow++;
 
-  // 標題列
-  sheet.getRange(currentRow, 2).setValue('板塊名稱').setFontWeight('bold').setBorder(null, null, true, null, null, null, '#444444', SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange(currentRow, 3).setValue('動能分數').setFontWeight('bold').setBorder(null, null, true, null, null, null, '#444444', SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange(currentRow, 4, 1, 3).merge().setValue('資金流向研判').setFontWeight('bold').setBorder(null, null, true, null, null, null, '#444444', SpreadsheetApp.BorderStyle.SOLID);
-  currentRow++;
-
-  if (clusteringJson && clusteringJson.sectors) {
-    clusteringJson.sectors.sort((a, b) => b.momentum_score - a.momentum_score).forEach(sector => {
-      sheet.getRange(currentRow, 2).setValue(sector.sector_name);
-
-      const scoreCell = sheet.getRange(currentRow, 3);
-      scoreCell.setValue(sector.momentum_score + ' / 10').setHorizontalAlignment('center');
-      if (sector.momentum_score >= 8) scoreCell.setFontColor(colors.accentUp).setFontWeight('bold');
-
-      sheet.getRange(currentRow, 4, 1, 3).merge().setValue(sector.trend_analysis).setWrap(true).setFontColor(colors.textSub);
-      currentRow++;
-    });
-  }
-  currentRow++;
-
-  // ── 區塊 C：領頭羊與補漲股挖掘清單 ─────────────────────────────
-  sheet.getRange(currentRow, 2, 1, 5).merge()
-    .setValue('🎯 領頭羊與補漲潛力雷達')
-    .setFontSize(12)
-    .setFontWeight('bold')
-    .setBackground(colors.subHeaderBg)
-    .setFontColor(colors.textMain);
-  currentRow++;
-
-  if (leadershipJson && leadershipJson.leadership) {
-    leadershipJson.leadership.forEach(group => {
-      // 繪製板塊名稱橫幅
-      sheet.getRange(currentRow, 2, 1, 5).merge().setValue(`【 ${group.sector_name} 】`).setFontColor('#81D4FA').setFontWeight('bold');
-      currentRow++;
-
-      // 領頭羊
-      if (group.leader) {
-        const url = getTvUrl(group.leader.symbol, stocks);
-        const nameLink = `=HYPERLINK("${url}", "${group.leader.name} (${group.leader.symbol})")`;
-        sheet.getRange(currentRow, 2).setValue('👑 領頭羊').setFontColor('#FFD700');
-        sheet.getRange(currentRow, 3).setValue(nameLink).setFontWeight('bold');
-        sheet.getRange(currentRow, 4, 1, 3).merge().setValue(group.leader.reason).setWrap(true);
+    if (strategyJson.sectors) {
+      strategyJson.sectors.sort((a, b) => b.momentum_score - a.momentum_score).forEach(sector => {
+        // 板塊標題
+        sheet.getRange(currentRow, 2, 1, 5).merge().setValue(`【 ${sector.sector_name} 】 動能: ${sector.momentum_score}/10`).setFontColor('#81D4FA').setFontWeight('bold');
         currentRow++;
-      }
 
-      // 補漲股 (可能有多支)
-      if (group.laggards && group.laggards.length > 0) {
-        group.laggards.forEach((laggard, idx) => {
-          const url = getTvUrl(laggard.symbol, stocks);
-          const nameLink = `=HYPERLINK("${url}", "${laggard.name} (${laggard.symbol})")`;
-          sheet.getRange(currentRow, 2).setValue(idx === 0 ? '🚀 補漲/外溢' : '').setFontColor(colors.accentUp);
-          sheet.getRange(currentRow, 3).setValue(nameLink);
-          sheet.getRange(currentRow, 4, 1, 3).merge().setValue(laggard.reason).setWrap(true).setFontColor(colors.textSub);
+        // 板塊分析
+        sheet.getRange(currentRow, 2).setValue('分析').setFontColor(colors.textSub);
+        sheet.getRange(currentRow, 3, 1, 4).merge().setValue(sector.analysis).setWrap(true);
+        currentRow++;
+
+        // 領頭羊
+        if (sector.leader) {
+          const url = getTvUrl(sector.leader.symbol, stocks);
+          const nameLink = `=HYPERLINK("${url}", "${sector.leader.name} (${sector.leader.symbol})")`;
+          sheet.getRange(currentRow, 2).setValue('👑 領頭羊').setFontColor('#FFD700');
+          sheet.getRange(currentRow, 3).setValue(nameLink).setFontWeight('bold');
+          sheet.getRange(currentRow, 4, 1, 3).merge().setValue(sector.leader.reason).setWrap(true);
           currentRow++;
-        });
-      }
-      currentRow++; // 板塊間留空行
-    });
+        }
+
+        // 補漲股
+        if (sector.laggards && sector.laggards.length > 0) {
+          sector.laggards.forEach((laggard, idx) => {
+            const url = getTvUrl(laggard.symbol, stocks);
+            const nameLink = `=HYPERLINK("${url}", "${laggard.name} (${laggard.symbol})")`;
+            sheet.getRange(currentRow, 2).setValue(idx === 0 ? '🚀 補漲/外溢' : '').setFontColor(colors.accentUp);
+            sheet.getRange(currentRow, 3).setValue(nameLink);
+            sheet.getRange(currentRow, 4, 1, 3).merge().setValue(laggard.reason).setWrap(true).setFontColor(colors.textSub);
+            currentRow++;
+          });
+        }
+        currentRow++; // 板塊間留白
+      });
+    }
+
+    // ── 6 今日觀察名單 ───────────────────────────────────────────────
+    sheet.getRange(currentRow, 2, 1, 5).merge().setValue('📌 今日精選觀察名單').setFontWeight('bold').setBackground(colors.subHeaderBg);
+    currentRow++;
+    const watchlistStr = (strategyJson.watchlist || []).join('、');
+    sheet.getRange(currentRow, 2, 1, 5).merge().setValue(watchlistStr).setFontColor(colors.accentUp).setWrap(true);
+    currentRow += 2;
   }
 
   // ── 加上外框與收尾排版 ──────────────────────────────────────────
