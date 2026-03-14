@@ -59,10 +59,14 @@ function runMarketStrategy() {
   Logger.log('🎨 正在繪製量化儀表板...');
   buildQuantDashboard(ss, strategyJson, stocks);
 
+  // 4. 渲染板塊分類工作表（依 AI 分析的強勢板塊分組、依月漲幅排序）
+  Logger.log('📊 正在渲染台股板塊分類表...');
+  buildTWSectorBreakdown(ss, strategyJson, stocks);
+
   try {
-    SpreadsheetApp.getUi().alert('🎯 台股專業量化儀表板已生成！\n請查看「量化儀表板_台股」工作表。');
+    SpreadsheetApp.getUi().alert('🎯 台股儀表板與板塊分類表已生成！\n請查看「量化儀表板_台股」與「板塊分類_台股」工作表。');
   } catch (e) {
-    Logger.log('🎯 台股專業量化儀表板已生成！請查看「量化儀表板_台股」工作表。');
+    Logger.log('🎯 台股儀表板已生成！');
   }
 }
 
@@ -119,6 +123,7 @@ ${stockListStr}
 4. 根據上方客觀數據，綜合判斷市場情緒並給出 1~10 分（1=極度恐懼, 5=中性, 10=極度貪婪）
 5. 提出盤前操作策略
 6. 根據清單內標記「創高」的股票，整理出一份特別觀察名單
+7. 重要：請將清單上「所有」股票依其主力題材分配到最適合的板塊（'stocks' 陣列填入代號）。板塊名稱請使用真實市場主流題材（例如：AI基建與ABF載板、散熱與液冷）。若有不屬於大主流的股票，請額外建立「其他次要板塊」收容，確保沒有任何股票被遺漏。
 
 【強制輸出結構】
 你必須回傳純 JSON 格式，不要包含 \`\`\`json 等 Markdown 標記，直接依據以下 Schema 輸出：
@@ -130,12 +135,13 @@ ${stockListStr}
   "strategies": ["核心策略一", "核心策略二", "核心策略三"],
   "sectors": [
     {
-      "sector_name": "板塊名稱 (例如: AI伺服器供應鏈)",
+      "sector_name": "AI基建與ABF載板",
       "momentum_score": 9,
       "analysis": "強勢板塊分析...資金流向判斷",
+      "stocks": ["2330", "3037", "8046"],
       "leader": {"symbol": "2330", "name": "台積電", "reason": "領頭羊理由"},
       "laggards": [
-        {"symbol": "XXXX", "name": "XXX", "reason": "補漲潛力股理由"}
+        {"symbol": "3037", "name": "欣興", "reason": "補漲潛力股理由"}
       ]
     }
   ],
@@ -420,4 +426,184 @@ function buildQuantDashboard(ss, strategyJson, stocks) {
   if (sheet.getMaxRows() > finalRow + 5) {
     sheet.hideRows(finalRow + 5, sheet.getMaxRows() - finalRow - 4);
   }
+}
+
+// ==============================================================================
+// 板塊分類工作表（台股，基於 AI 強勢板塊分組）
+// ==============================================================================
+
+/**
+ * 以 strategyJson.sectors 為基礎，把存檔資料內的個股依 AI 識別的板塊分組，
+ * 板塊依 momentum_score 排序，板塊內個股依月漲幅排序，渲染至「板塊分類_台股」
+ */
+function buildTWSectorBreakdown(ss, strategyJson, allStocks) {
+  if (!strategyJson || !strategyJson.sectors || strategyJson.sectors.length === 0) {
+    Logger.log('⚠️ 無 AI sectors 資料，跳過板塊分類渲染');
+    return;
+  }
+
+  // ── 建立代號 → 存檔資料的快速查找表 ────────────────────────────
+  const stockMap = {};
+  allStocks.forEach(s => { stockMap[String(s.symbol)] = s; });
+
+  // ── 板塊依 momentum_score 降冪排序 ──────────────────────────────
+  const sectors = strategyJson.sectors.slice()
+    .sort((a, b) => (b.momentum_score || 0) - (a.momentum_score || 0));
+
+  // ── 建立工作表 ───────────────────────────────────────────────────
+  const sheetName = '板塊分類_台股';
+  let sheet = ss.getSheetByName(sheetName);
+  if (sheet) { sheet.clear(); sheet.clearFormats(); }
+  else { sheet = ss.insertSheet(sheetName); }
+
+  const TOTAL_COLS = 8;
+  sheet.getRange(1, 1, 600, TOTAL_COLS)
+    .setBackground('#1E1E1E').setFontColor('#E0E0E0').setFontFamily('Arial');
+  [70, 130, 220, 70, 70, 65, 70, 55].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+
+  let r = 1;
+
+  // ── 大標題 ──
+  sheet.getRange(r, 1, 1, TOTAL_COLS).merge()
+    .setValue('📊 台股強勢板塊分類（AI 識別板塊 × 月漲幅排序）')
+    .setFontSize(13).setFontWeight('bold')
+    .setBackground('#0A3D62').setFontColor('#FFFFFF')
+    .setHorizontalAlignment('center');
+  sheet.setRowHeight(r, 34);
+  r++;
+
+  // 紀錄已被 AI 分配的股票
+  const assignedSymbols = new Set();
+
+  // ── 逐板塊渲染 ──
+  sectors.forEach(sector => {
+    const sectorSymbols = (sector.stocks || []).map(String);
+    const leaderSymbol = String(sector.leader ? sector.leader.symbol : '');
+
+    // 從存檔資料中找出此板塊的個股，依月漲幅排序
+    const sectorStocks = sectorSymbols
+      .map(sym => stockMap[sym])
+      .filter(Boolean)
+      .sort((a, b) => b.perf1m - a.perf1m);
+
+    sectorStocks.forEach(s => assignedSymbols.add(String(s.symbol)));
+
+    // 板塊名稱與動能分數
+    const score = sector.momentum_score || '-';
+    const count = sectorStocks.length;
+    const avgPerf = count > 0
+      ? (sectorStocks.reduce((s, x) => s + x.perf1m, 0) / count).toFixed(1)
+      : '?';
+
+    // ── 板塊標題列 ──
+    sheet.getRange(r, 1, 1, TOTAL_COLS).merge()
+      .setValue(`【 ${sector.sector_name} 】  動能 ${score}/10  ｜  共 ${count} 檔  均月漲幅 +${avgPerf}%`)
+      .setFontWeight('bold').setFontSize(10)
+      .setBackground('#1A3A4A').setFontColor('#80DEEA');
+    sheet.setRowHeight(r, 26);
+    r++;
+
+    // ── 板塊分析文字 ──
+    if (sector.analysis && sector.analysis.trim() !== "") {
+      sheet.getRange(r, 1, 1, TOTAL_COLS).merge()
+        .setValue(`📝 ${sector.analysis}`)
+        .setFontSize(9).setFontColor('#B0BEC5').setBackground('#212121').setWrap(true);
+      sheet.setRowHeight(r, 22);
+      r++;
+    }
+
+    // ── 欄位表頭 ──
+    const headers = ['代碼', '股票名稱', 'AI 題材', '月漲幅%', '五日漲%', '日漲幅%', '收盤價', 'RSI'];
+    sheet.getRange(r, 1, 1, TOTAL_COLS).setValues([headers])
+      .setFontWeight('bold').setBackground('#263238').setFontColor('#B0BEC5').setFontSize(9);
+    sheet.setRowHeight(r, 20);
+    r++;
+
+    // ── 個股列 ──
+    if (sectorStocks.length === 0) {
+      sheet.getRange(r, 1, 1, TOTAL_COLS).merge()
+        .setValue('（本板塊個股不在當前存檔資料中）')
+        .setFontColor('#546E7A').setFontSize(9);
+      r++;
+    } else {
+      sectorStocks.forEach((s, idx) => {
+        const isLeader = String(s.symbol) === leaderSymbol;
+        const bg = isLeader ? '#1B3A1B' : (idx % 2 === 0 ? '#1E1E1E' : '#252525');
+        sheet.getRange(r, 1, 1, TOTAL_COLS).setBackground(bg).setFontSize(10);
+
+        // 領頭羊加 👑 標記
+        const symbolLabel = isLeader ? `👑 ${s.symbol}` : s.symbol;
+        sheet.getRange(r, 1).setValue(symbolLabel).setFontColor(isLeader ? '#FFD700' : '#CFD8DC');
+
+        // 股票名稱（TradingView 超連結）
+        const nc = sheet.getRange(r, 2);
+        if (s.tvUrl) {
+          // 從 tvUrl 重建名稱文字（去掉 🔥 前綴）
+          const cleanName = String(s.nameText || s.symbol).replace(/^🔥\s*/, '');
+          nc.setValue(`=HYPERLINK("${s.tvUrl}","${cleanName}")`).setFontColor(isLeader ? '#FFD700' : '#4FC3F7');
+        } else {
+          nc.setValue(s.nameText || s.symbol).setFontColor('#4FC3F7');
+        }
+
+        sheet.getRange(r, 3).setValue(s.theme || '').setFontSize(9).setWrap(true).setFontColor('#E0E0E0');
+
+        const clr = v => v >= 0 ? '#4CAF50' : '#EF5350';
+        sheet.getRange(r, 4).setValue(s.perf1m).setFontColor(clr(s.perf1m)).setFontWeight('bold').setHorizontalAlignment('center');
+        sheet.getRange(r, 5).setValue(s.perf5d).setFontColor(clr(s.perf5d)).setHorizontalAlignment('center');
+        sheet.getRange(r, 6).setValue(s.change).setFontColor(clr(s.change)).setHorizontalAlignment('center');
+        sheet.getRange(r, 7).setValue(s.close).setFontColor('#ECEFF1').setHorizontalAlignment('center');
+        sheet.getRange(r, 8).setValue(s.rsi).setFontColor('#FFF176').setHorizontalAlignment('center');
+
+        sheet.setRowHeight(r, 24);
+        r++;
+      });
+    }
+
+    r++; // 板塊間留白
+  });
+
+  // ── 兜底：未被分類的強勢股 ──
+  const unassigned = allStocks.filter(s => !assignedSymbols.has(String(s.symbol))).sort((a, b) => b.perf1m - a.perf1m);
+  if (unassigned.length > 0) {
+    const avgPerf = (unassigned.reduce((s, x) => s + x.perf1m, 0) / unassigned.length).toFixed(1);
+
+    sheet.getRange(r, 1, 1, TOTAL_COLS).merge()
+      .setValue(`【 其他強勢股 (未分類) 】  動能 -/10  ｜  共 ${unassigned.length} 檔  均月漲幅 +${avgPerf}%`)
+      .setFontWeight('bold').setFontSize(10)
+      .setBackground('#37474F').setFontColor('#CFD8DC');
+    sheet.setRowHeight(r, 26);
+    r++;
+
+    const headers = ['代碼', '股票名稱', 'AI 題材', '月漲幅%', '五日漲%', '日漲幅%', '收盤價', 'RSI'];
+    sheet.getRange(r, 1, 1, TOTAL_COLS).setValues([headers])
+      .setFontWeight('bold').setBackground('#263238').setFontColor('#B0BEC5').setFontSize(9);
+    sheet.setRowHeight(r, 20);
+    r++;
+
+    unassigned.forEach((s, idx) => {
+      const bg = idx % 2 === 0 ? '#1E1E1E' : '#252525';
+      sheet.getRange(r, 1, 1, TOTAL_COLS).setBackground(bg).setFontSize(10);
+      sheet.getRange(r, 1).setValue(s.symbol).setFontColor('#CFD8DC');
+
+      const nc = sheet.getRange(r, 2);
+      if (s.tvUrl) {
+        const cleanName = String(s.nameText || s.symbol).replace(/^🔥\s*/, '');
+        nc.setValue(`=HYPERLINK("${s.tvUrl}","${cleanName}")`).setFontColor('#4FC3F7');
+      } else {
+        nc.setValue(s.nameText || s.symbol).setFontColor('#4FC3F7');
+      }
+
+      sheet.getRange(r, 3).setValue(s.theme || '').setFontSize(9).setWrap(true).setFontColor('#E0E0E0');
+      const clr = v => v >= 0 ? '#4CAF50' : '#EF5350';
+      sheet.getRange(r, 4).setValue(s.perf1m).setFontColor(clr(s.perf1m)).setFontWeight('bold').setHorizontalAlignment('center');
+      sheet.getRange(r, 5).setValue(s.perf5d).setFontColor(clr(s.perf5d)).setHorizontalAlignment('center');
+      sheet.getRange(r, 6).setValue(s.change).setFontColor(clr(s.change)).setHorizontalAlignment('center');
+      sheet.getRange(r, 7).setValue(s.close).setFontColor('#ECEFF1').setHorizontalAlignment('center');
+      sheet.getRange(r, 8).setValue(s.rsi).setFontColor('#FFF176').setHorizontalAlignment('center');
+      sheet.setRowHeight(r, 24);
+      r++;
+    });
+  }
+
+  Logger.log(`✅ 板塊分類_台股 渲染完成，共 ${sectors.length} 個 AI 板塊`);
 }
