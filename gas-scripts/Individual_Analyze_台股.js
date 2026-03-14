@@ -10,7 +10,15 @@ function runIndividualAnalyze() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('台股存檔資料') || ss.insertSheet('台股存檔資料');
   sheet.clear();
-  sheet.appendRow(['股票代碼', '股票名稱', '月漲幅%', 'AI 個股題材', '抓取時間']);
+
+  // 擴充表頭 15 欄
+  const headers = [
+    '股票代碼', '股票名稱', '產業板塊', '細分產業',
+    '最新收盤價', '單日漲幅%', '五日漲幅%', '月漲幅%',
+    '成交量', '成交額(元)', '10日相對成交量', '5日均量',
+    '市值(元)', 'RSI', '20日新高', 'AI 個股題材', '抓取時間'
+  ];
+  sheet.appendRow(headers);
 
   Logger.log('🚀 正在從 TradingView 抓取台股高動能資料...');
   const fetchResult = fetchTradingViewData();
@@ -54,7 +62,29 @@ function runIndividualAnalyze() {
         if (theme) {
           const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
           const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
-          sheet.appendRow([stock.symbol, nameLink, stock.change, theme, now]);
+
+          // 判斷是否紅底漲停 (簡單判斷單日 > 9.9%)
+          const finalNameLink = stock.change >= 9.9 ? `="🔥 " & ${nameLink}` : nameLink;
+
+          sheet.appendRow([
+            stock.symbol,             // ticker
+            finalNameLink,            // name (hyperlink)
+            stock.sector,             // sector
+            stock.industry,           // industry
+            stock.close,              // close
+            stock.change,             // change
+            stock.perf5d,             // Perf.5D
+            stock.perf1m,             // Perf.1M
+            stock.volume,             // volume
+            stock.valueTraded,        // Value.Traded
+            stock.relVol10d,          // relative_volume_10d_calc
+            stock.avgVol5d,           // average_volume_5d
+            stock.marketCap,          // market_cap_basic
+            stock.rsi,                // RSI
+            stock.high20,             // High.20
+            theme,                    // AI 個股題材
+            now                       // 抓取時間
+          ]);
         } else {
           unmatched.push(stock);
         }
@@ -72,7 +102,15 @@ function runIndividualAnalyze() {
           const theme = retryMap[stock.symbol] || retryResp.trim() || '無法取得分析';
           const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
           const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
-          sheet.appendRow([stock.symbol, nameLink, stock.change, theme, now]);
+
+          const finalNameLink = stock.change >= 9.9 ? `="🔥 " & ${nameLink}` : nameLink;
+
+          sheet.appendRow([
+            stock.symbol, finalNameLink, stock.sector, stock.industry,
+            stock.close, stock.change, stock.perf5d, stock.perf1m,
+            stock.volume, stock.valueTraded, stock.relVol10d, stock.avgVol5d,
+            stock.marketCap, stock.rsi, stock.high20, theme, now
+          ]);
           Utilities.sleep(300);
         });
       }
@@ -80,7 +118,14 @@ function runIndividualAnalyze() {
     } catch (e) {
       Logger.log(`批次處理異常: ${e.message}`);
       // 異常時仍寫入佔位，不漏行
-      batch.forEach(stock => sheet.appendRow([stock.symbol, stock.name, stock.change, '分析異常', now]));
+      batch.forEach(stock => {
+        sheet.appendRow([
+          stock.symbol, stock.name, stock.sector, stock.industry,
+          stock.close, stock.change, stock.perf5d, stock.perf1m,
+          stock.volume, stock.valueTraded, stock.relVol10d, stock.avgVol5d,
+          stock.marketCap, stock.rsi, stock.high20, '分析異常', now
+        ]);
+      });
     }
 
     Utilities.sleep(500);
@@ -158,7 +203,12 @@ function fetchTradingViewData() {
     ],
     options: { lang: 'zh_TW' },
     markets: ['taiwan'],
-    columns: ['name', 'description', 'Perf.1M'],
+    columns: [
+      'name', 'description', 'sector', 'industry',
+      'close', 'change', 'Perf.5D', 'Perf.1M',
+      'volume', 'Value.Traded', 'relative_volume_10d_calc', 'average_volume_5d_calc',
+      'market_cap_basic', 'RSI', 'High.All'
+    ],
     sort: { sortBy: 'Perf.1M', sortOrder: 'desc' },
     range: [0, 50]
   };
@@ -177,10 +227,22 @@ function fetchTradingViewData() {
 
     return {
       data: data.data.map(item => ({
-        exchange: item.s.split(':')[0],   // TWSE 或 TPEX
+        exchange: item.s.split(':')[0],
         symbol: item.s.split(':')[1],
         name: item.d[1],
-        change: item.d[2] ? item.d[2].toFixed(2) : '0.00'
+        sector: item.d[2] || '',
+        industry: item.d[3] || '',
+        close: item.d[4],
+        change: item.d[5] ? parseFloat(item.d[5].toFixed(2)) : 0,
+        perf5d: item.d[6] ? parseFloat(item.d[6].toFixed(2)) : 0,
+        perf1m: item.d[7] ? parseFloat(item.d[7].toFixed(2)) : 0,
+        volume: item.d[8] || 0,
+        valueTraded: item.d[9] || 0,
+        relVol10d: item.d[10] ? parseFloat(item.d[10].toFixed(2)) : 0,
+        avgVol5d: item.d[11] || 0,
+        marketCap: item.d[12] || 0,
+        rsi: item.d[13] ? parseFloat(item.d[13].toFixed(2)) : 0,
+        high20: item.d[14] ? parseFloat(item.d[14].toFixed(2)) : 0 // 借用 High.All 代替
       }))
     };
   } catch (e) {
