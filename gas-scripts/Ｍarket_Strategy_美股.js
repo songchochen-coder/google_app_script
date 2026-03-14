@@ -45,8 +45,10 @@ function runUSMarketStrategy() {
       stocks.push({
         symbol: data[i][0],
         name: data[i][1],
-        change: parseFloat(data[i][2]) || 0,
-        theme: data[i][3],
+        theme: data[i][2],
+        close: parseFloat(data[i][5]) || 0,
+        change: parseFloat(data[i][6]) || 0,
+        high20: parseFloat(data[i][15]) || 0,
         tvUrl: tvUrl
       });
     }
@@ -81,7 +83,12 @@ function runUSMarketStrategy() {
  */
 function analyzeUSMarketAndSectors(stocks) {
   const today = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
-  const stockListStr = stocks.map(s => `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}`).join('\n');
+
+  // 計算是否有創高 (這裡將 close >= high20 視為創 20/30 日以上新高)
+  const stockListStr = stocks.map(s => {
+    const isNewHigh = s.high20 > 0 && s.close >= s.high20;
+    return `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}, 最新價: ${s.close}, 波段高點: ${s.high20} ${isNewHigh ? '(🔥創30天以上新高)' : ''}`;
+  }).join('\n');
 
   const prompt = `你是全球宏觀與跨市場套利基金的投資長，今天是美東時間 ${today}。
 請根據以下美股高動能股票清單（月漲幅超過20%），自動進行【盤前交易策略、板塊分析與台股供應鏈連動】。
@@ -95,6 +102,7 @@ ${stockListStr}
 3. 重點：針對每個美股板塊，找出【台股連動/供應鏈受惠股票群】（自行補充台股標的）
 4. 判斷全球市場情緒
 5. 提出盤前操作策略
+6. 根據清單內標記「創30天以上新高」的股票，整理出一份特別觀察名單
 
 【強制輸出結構】
 你必須回傳純 JSON 格式，不要包含 \`\`\`json 等 Markdown 標記，直接依據以下 Schema 輸出：
@@ -117,6 +125,7 @@ ${stockListStr}
       ]
     }
   ],
+  "new_high_stocks": ["NVDA Nvidia", "PLTR Palantir"],
   "watchlist": ["NVDA", "ARM", "SMCI"]
 }`;
 
@@ -250,7 +259,13 @@ function buildUSQuantDashboard(ss, strategyJson, stocks) {
       });
     }
 
-    // ── 6 今日觀察名單 ───────────────────────────────────────────────
+    // ── 6 創30天以上新高股票 & 7 今日觀察名單 ─────────────────────────────
+    sheet.getRange(currentRow, 2, 1, 5).merge().setValue('📈 創30天以上新高股票').setFontWeight('bold').setBackground(colors.subHeaderBg);
+    currentRow++;
+    const newHighStr = (strategyJson.new_high_stocks || []).join('、') || '無';
+    sheet.getRange(currentRow, 2, 1, 5).merge().setValue(newHighStr).setFontColor('#FF9800').setWrap(true);
+    currentRow += 2;
+
     sheet.getRange(currentRow, 2, 1, 5).merge().setValue('📌 今日美股觀察名單').setFontWeight('bold').setBackground(colors.subHeaderBg);
     currentRow++;
     const watchlistStr = (strategyJson.watchlist || []).join('、');

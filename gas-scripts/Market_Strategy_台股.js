@@ -42,8 +42,10 @@ function runMarketStrategy() {
       stocks.push({
         symbol: data[i][0],
         name: data[i][1],
-        change: parseFloat(data[i][2]) || 0,
-        theme: data[i][3],
+        theme: data[i][2],
+        close: parseFloat(data[i][5]) || 0,
+        change: parseFloat(data[i][6]) || 0,
+        high20: parseFloat(data[i][15]) || 0,
         tvUrl: tvUrl
       });
     }
@@ -80,7 +82,12 @@ function runMarketStrategy() {
  */
 function analyzeMarketAndSectors(stocks) {
   const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
-  const stockListStr = stocks.map(s => `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}`).join('\n');
+
+  // 計算是否有創高 (這裡將 close >= high20 視為創 20/30 日以上新高，或者直接提供給 AI 判斷)
+  const stockListStr = stocks.map(s => {
+    const isNewHigh = s.high20 > 0 && s.close >= s.high20;
+    return `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}, 最新價: ${s.close}, 波段高點: ${s.high20} ${isNewHigh ? '(🔥創30天以上新高)' : ''}`;
+  }).join('\n');
 
   const prompt = `你是頂尖的量化基金經理人，今天是 ${today}。
 請根據以下高動能股票清單（月漲幅超過20%），自動進行【盤前交易策略與板塊分析】。
@@ -94,6 +101,7 @@ ${stockListStr}
 3. 找出補漲潛力股
 4. 判斷市場情緒
 5. 提出盤前操作策略
+6. 根據清單內標記「創30天以上新高」的股票，整理出一份特別觀察名單
 
 【強制輸出結構】
 你必須回傳純 JSON 格式，不要包含 \`\`\`json 等 Markdown 標記，直接依據以下 Schema 輸出：
@@ -112,7 +120,8 @@ ${stockListStr}
       ]
     }
   ],
-  "watchlist": ["2330 台積電", "2317 鴻海", "3231 緯創"]
+  "new_high_stocks": ["2330 台積電", "3017 奇鋐"],
+  "watchlist": ["2330 台積電", "2317 鴻海"]
 }`;
 
   const jsonStr = callGeminiJSON(prompt);
@@ -266,7 +275,14 @@ function buildQuantDashboard(ss, strategyJson, stocks) {
       });
     }
 
-    // ── 6 今日觀察名單 ───────────────────────────────────────────────
+    // ── 6 創30天以上新高股票 & 7 今日觀察名單 ─────────────────────────────
+    // 新增創高股區塊
+    sheet.getRange(currentRow, 2, 1, 5).merge().setValue('📈 創30天以上新高股票').setFontWeight('bold').setBackground(colors.subHeaderBg);
+    currentRow++;
+    const newHighStr = (strategyJson.new_high_stocks || []).join('、') || '無';
+    sheet.getRange(currentRow, 2, 1, 5).merge().setValue(newHighStr).setFontColor('#FF9800').setWrap(true);
+    currentRow += 2;
+
     sheet.getRange(currentRow, 2, 1, 5).merge().setValue('📌 今日精選觀察名單').setFontWeight('bold').setBackground(colors.subHeaderBg);
     currentRow++;
     const watchlistStr = (strategyJson.watchlist || []).join('、');
