@@ -13,10 +13,10 @@ function runIndividualAnalyze() {
 
   // 擴充表頭 15 欄
   const headers = [
-    '股票代碼', '股票名稱', '產業板塊', '細分產業',
+    '股票代碼', '股票名稱', 'AI 個股題材', '產業板塊', '細分產業',
     '最新收盤價', '單日漲幅%', '五日漲幅%', '月漲幅%',
     '成交量', '成交額(元)', '10日相對成交量', '5日均量',
-    '市值(元)', 'RSI', '20日新高', 'AI 個股題材', '抓取時間'
+    '市值(元)', 'RSI', '20日新高', '抓取時間'
   ];
   sheet.appendRow(headers);
 
@@ -68,6 +68,7 @@ function runIndividualAnalyze() {
           sheet.appendRow([
             stock.symbol,             // ticker
             finalNameLink,            // name (hyperlink)
+            theme,                    // AI 個股題材
             stock.sector,             // sector
             stock.industry,           // industry
             stock.close,              // close
@@ -77,11 +78,10 @@ function runIndividualAnalyze() {
             stock.volume,             // volume
             stock.valueTraded,        // Value.Traded
             stock.relVol10d,          // relative_volume_10d_calc
-            stock.avgVol5d,           // average_volume_5d
+            stock.avgVol5d,           // average_volume_10d_calc
             stock.marketCap,          // market_cap_basic
             stock.rsi,                // RSI
-            stock.high20,             // High.20
-            theme,                    // AI 個股題材
+            stock.high20,             // High.All
             now                       // 抓取時間
           ]);
         } else {
@@ -104,10 +104,10 @@ function runIndividualAnalyze() {
           const finalNameLink = `=HYPERLINK("${tvUrl}","${displayName}")`;
 
           sheet.appendRow([
-            stock.symbol, finalNameLink, stock.sector, stock.industry,
+            stock.symbol, finalNameLink, theme, stock.sector, stock.industry,
             stock.close, stock.change, stock.perf5d, stock.perf1m,
             stock.volume, stock.valueTraded, stock.relVol10d, stock.avgVol5d,
-            stock.marketCap, stock.rsi, stock.high20, theme, now
+            stock.marketCap, stock.rsi, stock.high20, now
           ]);
           Utilities.sleep(300);
         });
@@ -118,10 +118,10 @@ function runIndividualAnalyze() {
       // 異常時仍寫入佔位，不漏行
       batch.forEach(stock => {
         sheet.appendRow([
-          stock.symbol, stock.name, stock.sector, stock.industry,
+          stock.symbol, stock.name, '分析異常', stock.sector, stock.industry,
           stock.close, stock.change, stock.perf5d, stock.perf1m,
           stock.volume, stock.valueTraded, stock.relVol10d, stock.avgVol5d,
-          stock.marketCap, stock.rsi, stock.high20, '分析異常', now
+          stock.marketCap, stock.rsi, stock.high20, now
         ]);
       });
     }
