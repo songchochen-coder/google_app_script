@@ -48,6 +48,9 @@ function runUSMarketStrategy() {
         theme: data[i][2],
         close: parseFloat(data[i][5]) || 0,
         change: parseFloat(data[i][6]) || 0,
+        perf5d: parseFloat(data[i][7]) || 0,
+        perf1m: parseFloat(data[i][8]) || 0,
+        rsi: parseFloat(data[i][14]) || 0,
         high20: parseFloat(data[i][15]) || 0,
         tvUrl: tvUrl
       });
