@@ -10,7 +10,15 @@ function runUSIndividualAnalyze() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('美股存檔資料') || ss.insertSheet('美股存檔資料');
   sheet.clear();
-  sheet.appendRow(['股票代碼', '股票名稱', '月漲幅%', 'AI 個股題材', '抓取時間']);
+
+  // 擴充表頭 15 欄，將 AI 個股題材放在股票名稱後面
+  const headers = [
+    '股票代碼', '股票名稱', 'AI 個股題材', '產業板塊', '細分產業',
+    '最新收盤價', '單日漲幅%', '五日漲幅%', '月漲幅%',
+    '成交量', '成交額(US$)', '10日相對成交量', '10日均量',
+    '市值(US$)', 'RSI', '20日新高', '抓取時間'
+  ];
+  sheet.appendRow(headers);
 
   Logger.log('🚀 正在從 TradingView 抓取美股高動能資料...');
   const fetchResult = fetchTradingViewUSData();
@@ -53,8 +61,29 @@ function runUSIndividualAnalyze() {
         const theme = analysisMap[stock.symbol];
         if (theme) {
           const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
-          const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
-          sheet.appendRow([stock.symbol, nameLink, stock.change, theme, now]);
+          // 判斷是否紅底大漲 (美股無漲停，以單日 > 9.9% 作為情緒標籤)
+          const displayName = stock.change >= 9.9 ? `🔥 ${stock.name}` : stock.name;
+          const finalNameLink = `=HYPERLINK("${tvUrl}","${displayName}")`;
+
+          sheet.appendRow([
+            stock.symbol,             // ticker
+            finalNameLink,            // name (hyperlink)
+            theme,                    // AI 個股題材
+            stock.sector,             // sector
+            stock.industry,           // industry
+            stock.close,              // close
+            stock.change,             // change
+            stock.perf5d,             // Perf.5D
+            stock.perf1m,             // Perf.1M
+            stock.volume,             // volume
+            stock.valueTraded,        // Value.Traded
+            stock.relVol10d,          // relative_volume_10d_calc
+            stock.avgVol10d,          // average_volume_10d_calc
+            stock.marketCap,          // market_cap_basic
+            stock.rsi,                // RSI
+            stock.high20,             // High.All
+            now                       // 抓取時間
+          ]);
         } else {
           unmatched.push(stock);
         }
@@ -71,8 +100,15 @@ Format: ${stock.symbol}:reason`;
           const retryMap = parseBatchResponse(retryResp, [stock]);
           const theme = retryMap[stock.symbol] || retryResp.trim() || '無法取得分析';
           const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
-          const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
-          sheet.appendRow([stock.symbol, nameLink, stock.change, theme, now]);
+          const displayName = stock.change >= 9.9 ? `🔥 ${stock.name}` : stock.name;
+          const finalNameLink = `=HYPERLINK("${tvUrl}","${displayName}")`;
+
+          sheet.appendRow([
+            stock.symbol, finalNameLink, theme, stock.sector, stock.industry,
+            stock.close, stock.change, stock.perf5d, stock.perf1m,
+            stock.volume, stock.valueTraded, stock.relVol10d, stock.avgVol10d,
+            stock.marketCap, stock.rsi, stock.high20, now
+          ]);
           Utilities.sleep(300);
         });
       }
@@ -80,7 +116,14 @@ Format: ${stock.symbol}:reason`;
     } catch (e) {
       Logger.log(`批次處理異常: ${e.message}`);
       // 異常時仍寫入佔位，不漏行
-      batch.forEach(stock => sheet.appendRow([stock.symbol, stock.name, stock.change, '分析異常', now]));
+      batch.forEach(stock => {
+        sheet.appendRow([
+          stock.symbol, stock.name, '分析異常', stock.sector, stock.industry,
+          stock.close, stock.change, stock.perf5d, stock.perf1m,
+          stock.volume, stock.valueTraded, stock.relVol10d, stock.avgVol10d,
+          stock.marketCap, stock.rsi, stock.high20, now
+        ]);
+      });
     }
 
     Utilities.sleep(500);
@@ -152,11 +195,18 @@ function fetchTradingViewUSData() {
     filter: [
       { left: 'Perf.1M', operation: 'greater', right: 20 },
       { left: 'market_cap_basic', operation: 'greater', right: 1000000000 },
-      { left: 'average_volume_10d_calc', operation: 'greater', right: 1000000 }
+      { left: 'average_volume_10d_calc', operation: 'greater', right: 1000000 },
+      { left: 'SMA150', operation: 'greater', right: 'SMA200' },
+      { left: 'type', operation: 'in_range', right: ['stock'] }
     ],
     options: { lang: 'en' },
     markets: ['america'],
-    columns: ['name', 'description', 'Perf.1M'],
+    columns: [
+      'name', 'description', 'sector', 'industry',
+      'close', 'change', 'Perf.5D', 'Perf.1M',
+      'volume', 'Value.Traded', 'relative_volume_10d_calc', 'average_volume_10d_calc',
+      'market_cap_basic', 'RSI', 'High.All'
+    ],
     sort: { sortBy: 'Perf.1M', sortOrder: 'desc' },
     range: [0, 40]
   };
@@ -178,7 +228,19 @@ function fetchTradingViewUSData() {
         exchange: item.s.split(':')[0],  // NASDAQ, NYSE, AMEX 等
         symbol: item.s.split(':')[1],
         name: item.d[1],
-        change: item.d[2] ? item.d[2].toFixed(2) : '0.00'
+        sector: item.d[2] || '',
+        industry: item.d[3] || '',
+        close: item.d[4],
+        change: item.d[5] ? parseFloat(item.d[5].toFixed(2)) : 0,
+        perf5d: item.d[6] ? parseFloat(item.d[6].toFixed(2)) : 0,
+        perf1m: item.d[7] ? parseFloat(item.d[7].toFixed(2)) : 0,
+        volume: item.d[8] || 0,
+        valueTraded: item.d[9] || 0,
+        relVol10d: item.d[10] ? parseFloat(item.d[10].toFixed(2)) : 0,
+        avgVol10d: item.d[11] || 0,
+        marketCap: item.d[12] || 0,
+        rsi: item.d[13] ? parseFloat(item.d[13].toFixed(2)) : 0,
+        high20: item.d[14] ? parseFloat(item.d[14].toFixed(2)) : 0
       }))
     };
   } catch (e) {

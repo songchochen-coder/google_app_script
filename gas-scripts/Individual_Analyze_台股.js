@@ -197,6 +197,7 @@ function fetchTradingViewData() {
       { left: 'Perf.1M', operation: 'greater', right: 20 },
       { left: 'market_cap_basic', operation: 'greater', right: 5000000000 },
       { left: 'average_volume_30d_calc', operation: 'greater', right: 5000000 },
+      { left: 'SMA150', operation: 'greater', right: 'SMA200' },
       { left: 'type', operation: 'in_range', right: ['stock', 'dr', 'fund'] }
     ],
     options: { lang: 'zh_TW' },
