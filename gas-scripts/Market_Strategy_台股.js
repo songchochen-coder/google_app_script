@@ -41,7 +41,7 @@ function runMarketStrategy() {
 
       stocks.push({
         symbol: data[i][0],
-        name: data[i][1],
+        name: data[i][1], // 修正：統一使用 name 而非 nameText
         theme: data[i][2],
         close: parseFloat(data[i][5]) || 0,
         change: parseFloat(data[i][6]) || 0,
@@ -491,9 +491,11 @@ function buildTWSectorBreakdown(ss, strategyJson, allStocks) {
     // 板塊名稱與動能分數
     const score = sector.momentum_score || '-';
     const count = sectorStocks.length;
-    const avgPerf = count > 0
-      ? (sectorStocks.reduce((s, x) => s + x.perf1m, 0) / count).toFixed(1)
-      : '?';
+    let avgPerf = '?';
+    if (count > 0) {
+      const sum = sectorStocks.reduce((s, x) => s + (isNaN(x.perf1m) ? 0 : x.perf1m), 0);
+      avgPerf = (sum / count).toFixed(1);
+    }
 
     // ── 板塊標題列 ──
     sheet.getRange(r, 1, 1, TOTAL_COLS).merge()
@@ -539,13 +541,18 @@ function buildTWSectorBreakdown(ss, strategyJson, allStocks) {
         const nc = sheet.getRange(r, 2);
         if (s.tvUrl) {
           // 從 tvUrl 重建名稱文字（去掉 🔥 前綴）
-          const cleanName = String(s.nameText || s.symbol).replace(/^🔥\s*/, '');
+          const cleanName = String(s.name || s.symbol).replace(/^🔥\s*/, '');
           nc.setValue(`=HYPERLINK("${s.tvUrl}","${cleanName}")`).setFontColor(isLeader ? '#FFD700' : '#4FC3F7');
         } else {
-          nc.setValue(s.nameText || s.symbol).setFontColor('#4FC3F7');
+          nc.setValue(s.name || s.symbol).setFontColor('#4FC3F7');
         }
 
-        sheet.getRange(r, 3).setValue(s.theme || '').setFontSize(9).setWrap(true).setFontColor('#E0E0E0');
+        // 領頭羊標記與理由
+        let themeText = s.theme || '';
+        if (isLeader && sector.leader && sector.leader.reason) {
+          themeText = `【領頭羊】${sector.leader.reason}\n${themeText}`;
+        }
+        sheet.getRange(r, 3).setValue(themeText).setFontSize(9).setWrap(true).setFontColor(isLeader ? '#FFF59D' : '#E0E0E0');
 
         const clr = v => v >= 0 ? '#4CAF50' : '#EF5350';
         sheet.getRange(r, 4).setValue(s.perf1m).setFontColor(clr(s.perf1m)).setFontWeight('bold').setHorizontalAlignment('center');
@@ -565,7 +572,12 @@ function buildTWSectorBreakdown(ss, strategyJson, allStocks) {
   // ── 兜底：未被分類的強勢股 ──
   const unassigned = allStocks.filter(s => !assignedSymbols.has(String(s.symbol))).sort((a, b) => b.perf1m - a.perf1m);
   if (unassigned.length > 0) {
-    const avgPerf = (unassigned.reduce((s, x) => s + x.perf1m, 0) / unassigned.length).toFixed(1);
+    const count = unassigned.length;
+    let avgPerf = '?';
+    if (count > 0) {
+      const sum = unassigned.reduce((s, x) => s + (isNaN(x.perf1m) ? 0 : x.perf1m), 0);
+      avgPerf = (sum / count).toFixed(1);
+    }
 
     sheet.getRange(r, 1, 1, TOTAL_COLS).merge()
       .setValue(`【 其他強勢股 (未分類) 】  動能 -/10  ｜  共 ${unassigned.length} 檔  均月漲幅 +${avgPerf}%`)
@@ -587,10 +599,10 @@ function buildTWSectorBreakdown(ss, strategyJson, allStocks) {
 
       const nc = sheet.getRange(r, 2);
       if (s.tvUrl) {
-        const cleanName = String(s.nameText || s.symbol).replace(/^🔥\s*/, '');
+        const cleanName = String(s.name || s.symbol).replace(/^🔥\s*/, '');
         nc.setValue(`=HYPERLINK("${s.tvUrl}","${cleanName}")`).setFontColor('#4FC3F7');
       } else {
-        nc.setValue(s.nameText || s.symbol).setFontColor('#4FC3F7');
+        nc.setValue(s.name || s.symbol).setFontColor('#4FC3F7');
       }
 
       sheet.getRange(r, 3).setValue(s.theme || '').setFontSize(9).setWrap(true).setFontColor('#E0E0E0');
