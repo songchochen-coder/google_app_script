@@ -59,16 +59,10 @@ function runMarketStrategy() {
   Logger.log('🎨 正在繪製量化儀表板...');
   buildQuantDashboard(ss, strategyJson, stocks);
 
-  // 4. 存入板塊輪動歷史，並渲染熱力圖
-  Logger.log('🗃️ 寫入板塊輪動歷史...');
-  saveSectorHistory(ss, strategyJson);
-  Logger.log('🔥 正在繪製板塊輪動熱力圖...');
-  buildSectorHeatmap(ss);
-
   try {
-    SpreadsheetApp.getUi().alert('🎯 台股專業量化儀表板已生成！\n請查看「量化儀表板_台股」與「板塊輪動熱力圖」工作表。');
+    SpreadsheetApp.getUi().alert('🎯 台股專業量化儀表板已生成！\n請查看「量化儀表板_台股」工作表。');
   } catch (e) {
-    Logger.log('🎯 台股專業量化儀表板已生成！');
+    Logger.log('🎯 台股專業量化儀表板已生成！請查看「量化儀表板_台股」工作表。');
   }
 }
 
@@ -134,21 +128,9 @@ ${stockListStr}
   "market_view": "市場定調...（50字以內）",
   "risk_warning": "風險提示...（30字以內）",
   "strategies": ["核心策略一", "核心策略二", "核心策略三"],
-  "sector_scores": {
-    "AI伺服器/HPC": 8,
-    "AI晶片/封裝": 7,
-    "散熱/機構件": 6,
-    "電源/PCB": 5,
-    "網通/資安": 4,
-    "電動車/儲能": 3,
-    "生技/醫療": 2,
-    "金融/壽險": 5,
-    "傳產/原物料": 3,
-    "消費電子/手機": 4
-  },
   "sectors": [
     {
-      "sector_name": "板塊名稱 (例如: AI伺服器/HPC)",
+      "sector_name": "板塊名稱 (例如: AI伺服器供應鏈)",
       "momentum_score": 9,
       "analysis": "強勢板塊分析...資金流向判斷",
       "leader": {"symbol": "2330", "name": "台積電", "reason": "領頭羊理由"},
@@ -399,184 +381,4 @@ function buildQuantDashboard(ss, strategyJson, stocks) {
   if (sheet.getMaxRows() > finalRow + 5) {
     sheet.hideRows(finalRow + 5, sheet.getMaxRows() - finalRow - 4);
   }
-}
-
-// ==============================================================================
-// 板塊輪動歷史 & 熱力圖模組
-// ==============================================================================
-
-/**
- * 固定板塊清單（台股，10個標準化板塊）
- * AI 會按此清單逐一評分，保持欄位一致以利跨日比較
- */
-const TW_SECTOR_KEYS = [
-  'AI伺服器/HPC', 'AI晶片/封裝', '散熱/機構件', '電源/PCB',
-  '網通/資安', '電動車/儲能', '生技/醫療', '金融/壽險',
-  '傳產/原物料', '消費電子/手機'
-];
-
-/**
- * 把當日板塊分數 & 情緒分數追加到歷史工作表
- * 格式：第1欄=日期, 後續欄=各板塊分數, 最後欄=情緒指數
- */
-function saveSectorHistory(ss, strategyJson) {
-  if (!strategyJson) return;
-
-  const histSheetName = '板塊輪動歷史_台股';
-  let histSheet = ss.getSheetByName(histSheetName);
-
-  // 如果歷史工作表不存在，建立並加入表頭
-  if (!histSheet) {
-    histSheet = ss.insertSheet(histSheetName);
-    const headerRow = ['日期', ...TW_SECTOR_KEYS, '情緒指數'];
-    histSheet.appendRow(headerRow);
-    histSheet.getRange(1, 1, 1, headerRow.length)
-      .setFontWeight('bold')
-      .setBackground('#263238')
-      .setFontColor('#ECEFF1');
-  }
-
-  const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy/MM/dd');
-  const sectorScores = strategyJson.sector_scores || {};
-
-  // 組成一行資料，確保板塊順序固定
-  const row = [today];
-  TW_SECTOR_KEYS.forEach(key => {
-    const score = sectorScores[key];
-    row.push(typeof score === 'number' ? score : null);
-  });
-  row.push(strategyJson.sentiment_score || null);
-
-  histSheet.appendRow(row);
-  Logger.log(`✅ 已將 ${today} 板塊分數寫入歷史紀錄`);
-}
-
-/**
- * 讀取歷史工作表，渲染「板塊輪動熱力圖」
- * - 橫軸: 最近 N 天（最多顯示 20 天）
- * - 縱軸: 10個固定板塊
- * - 格子: 1~10 分動態上色
- */
-function buildSectorHeatmap(ss) {
-  const histSheetName = '板塊輪動歷史_台股';
-  const histSheet = ss.getSheetByName(histSheetName);
-  if (!histSheet) {
-    Logger.log('⚠️ 找不到歷史工作表，無法渲染熱力圖');
-    return;
-  }
-
-  // 讀取歷史資料
-  const histData = histSheet.getDataRange().getValues();
-  if (histData.length <= 1) {
-    Logger.log('⚠️ 歷史資料不足，至少需要1行資料');
-    return;
-  }
-
-  // 建立/清空熱力圖工作表
-  const hmSheetName = '板塊輪動熱力圖';
-  let hmSheet = ss.getSheetByName(hmSheetName);
-  if (hmSheet) {
-    hmSheet.clear();
-    hmSheet.clearFormats();
-  } else {
-    hmSheet = ss.insertSheet(hmSheetName);
-  }
-
-  // 取最近 20 天數據（排除表頭）
-  const START_COL_OFFSET = 20;  // 欄寬 px
-  const maxDays = 20;
-  const rows = histData.slice(1); // 去掉表頭
-  const recentRows = rows.slice(-maxDays); // 最多取最後20天
-
-  const dates = recentRows.map(r => r[0]);
-  const numDates = dates.length;
-  const numSectors = TW_SECTOR_KEYS.length;
-
-  // 全域深色背景
-  hmSheet.getRange(1, 1, numSectors + 5, numDates + 3).setBackground('#1E1E1E').setFontColor('#E0E0E0').setFontFamily('Arial');
-
-  // ── 大標題 ──
-  hmSheet.getRange(1, 2, 1, numDates + 1).merge()
-    .setValue('📊 台股板塊輪動熱力圖（近期動能追蹤）')
-    .setFontSize(14).setFontWeight('bold')
-    .setBackground('#0A3D62').setFontColor('#FFFFFF')
-    .setHorizontalAlignment('center');
-  hmSheet.setRowHeight(1, 35);
-
-  // ── 凡例 ──
-  const legendRow = 2;
-  const legendData = [
-    ['9-10', '#B71C1C'], ['7-8', '#E64A19'], ['5-6', '#F57F17'],
-    ['3-4', '#546E7A'], ['1-2', '#0D47A1'], ['無資料', '#2A2A2A']
-  ];
-  hmSheet.getRange(legendRow, 2).setValue('圖例:').setFontColor('#B0BEC5').setFontSize(9);
-  legendData.forEach((item, idx) => {
-    const cell = hmSheet.getRange(legendRow, 3 + idx);
-    cell.setValue(item[0]).setBackground(item[1]).setFontColor('#FFFFFF')
-      .setFontSize(8).setHorizontalAlignment('center');
-  });
-  hmSheet.setRowHeight(legendRow, 20);
-
-  // ── 日期表頭（橫軸）──
-  const dateHeaderRow = 3;
-  hmSheet.getRange(dateHeaderRow, 2).setValue('板塊 \\ 日期').setFontWeight('bold').setFontSize(10).setBackground('#263238');
-  dates.forEach((d, colIdx) => {
-    const cell = hmSheet.getRange(dateHeaderRow, 3 + colIdx);
-    const displayDate = typeof d === 'string' ? d.substring(5) : Utilities.formatDate(d, 'Asia/Taipei', 'MM/dd'); // 只顯示 MM/dd
-    cell.setValue(displayDate).setFontWeight('bold').setBackground('#263238').setHorizontalAlignment('center').setFontSize(9);
-    hmSheet.setColumnWidth(3 + colIdx, 50);
-  });
-  hmSheet.setRowHeight(dateHeaderRow, 28);
-  hmSheet.setColumnWidth(2, 110); // 板塊名稱欄較寬
-
-  // ── 板塊資料格子（縱軸）──
-  TW_SECTOR_KEYS.forEach((sectorKey, rowIdx) => {
-    const dataRow = dateHeaderRow + 1 + rowIdx;
-    hmSheet.setRowHeight(dataRow, 30);
-
-    // 板塊名稱欄
-    hmSheet.getRange(dataRow, 2).setValue(sectorKey)
-      .setFontSize(9).setFontColor('#E0E0E0').setBackground('#263238');
-
-    // 各日期分數格
-    recentRows.forEach((histRow, colIdx) => {
-      const cellScore = histRow[1 + rowIdx]; // +1 跳過日期欄
-      const cell = hmSheet.getRange(dataRow, 3 + colIdx);
-
-      if (cellScore === null || cellScore === '' || typeof cellScore !== 'number') {
-        cell.setValue('').setBackground('#2A2A2A');
-      } else {
-        const score = Math.max(1, Math.min(10, Math.round(cellScore)));
-        cell.setValue(score).setHorizontalAlignment('center').setFontWeight('bold').setFontSize(11);
-
-        // 動態上色
-        let bg, fg;
-        if (score >= 9) { bg = '#B71C1C'; fg = '#FFFFFF'; }
-        else if (score >= 7) { bg = '#E64A19'; fg = '#FFFFFF'; }
-        else if (score >= 5) { bg = '#F57F17'; fg = '#212121'; }
-        else if (score >= 3) { bg = '#546E7A'; fg = '#FFFFFF'; }
-        else { bg = '#0D47A1'; fg = '#FFFFFF'; }
-        cell.setBackground(bg).setFontColor(fg);
-      }
-    });
-  });
-
-  // ── 情緒指數尾行 ──
-  const sentimentRow = dateHeaderRow + numSectors + 1;
-  hmSheet.setRowHeight(sentimentRow, 28);
-  hmSheet.getRange(sentimentRow, 2).setValue('🌡️ 情緒指數').setFontColor('#FFD700').setFontWeight('bold').setBackground('#263238').setFontSize(9);
-  recentRows.forEach((histRow, colIdx) => {
-    const sentScore = histRow[1 + numSectors]; // 最後一欄是情緒分數
-    const cell = hmSheet.getRange(sentimentRow, 3 + colIdx);
-    if (sentScore === null || sentScore === '') {
-      cell.setValue('').setBackground('#2A2A2A');
-    } else {
-      const s = Math.max(1, Math.min(10, Math.round(sentScore)));
-      let bg = s >= 8 ? '#B71C1C' : s >= 6 ? '#E65100' : s >= 4 ? '#546E7A' : '#0D47A1';
-      cell.setValue(s).setBackground(bg).setFontColor('#FFFFFF')
-        .setHorizontalAlignment('center').setFontWeight('bold').setFontSize(11);
-    }
-  });
-
-  Logger.log(`✅ 板塊輪動熱力圖已渲染，共 ${numDates} 天 × ${numSectors} 板塊`);
 }
