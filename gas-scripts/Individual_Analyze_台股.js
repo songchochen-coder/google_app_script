@@ -206,7 +206,7 @@ function fetchTradingViewData() {
     columns: [
       'name', 'description', 'sector', 'industry',
       'close', 'change', 'Perf.5D', 'Perf.1M',
-      'volume', 'Value.Traded', 'relative_volume_10d_calc', 'average_volume_5d_calc',
+      'volume', 'Value.Traded', 'relative_volume_10d_calc', 'average_volume_10d_calc',
       'market_cap_basic', 'RSI', 'High.All'
     ],
     sort: { sortBy: 'Perf.1M', sortOrder: 'desc' },
