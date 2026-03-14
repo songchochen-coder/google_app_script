@@ -181,12 +181,51 @@ function parseJSONSafely(str) {
 // 視覺化儀表板渲染模組 (Dashboard Builder)
 // ==============================================================================
 
+// Runtime 快取：避免同一 symbol 重複查詢 TradingView
+const _twExchangeCache = {};
+
+/**
+ * 取得台股 TradingView Chart URL。
+ * 優先從 stocks 快取找；找不到時查詢 TradingView scanner 取得正確的
+ * exchange 前綴 (TWSE 上市 or TPEX 上櫃)，解決上櫃股票連結失效問題。
+ */
 function getTvUrl(symbol, stocks) {
-  const stock = stocks.find(s => String(s.symbol) === String(symbol));
-  if (stock && stock.tvUrl) {
-    return stock.tvUrl;
+  const sym = String(symbol);
+
+  // 1. 優先用已存的 tvUrl（從個股分析存檔取得，含正確 exchange）
+  const stock = stocks.find(s => String(s.symbol) === sym);
+  if (stock && stock.tvUrl) return stock.tvUrl;
+
+  // 2. 已查詢過的 runtime 快取
+  if (_twExchangeCache[sym]) return _twExchangeCache[sym];
+
+  // 3. 查詢 TradingView API 取得正確 exchange (TWSE or TPEX)
+  try {
+    const resp = UrlFetchApp.fetch('https://scanner.tradingview.com/taiwan/scan', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        filter: [{ left: 'name', operation: 'equal', right: sym }],
+        options: { lang: 'zh_TW' },
+        markets: ['taiwan'],
+        columns: ['name'],
+        range: [0, 1]
+      }),
+      muteHttpExceptions: true
+    });
+    const data = JSON.parse(resp.getContentText());
+    if (data.data && data.data.length > 0) {
+      const fullSymbol = data.data[0].s; // e.g. "TPEX:3081" or "TWSE:2330"
+      const url = `https://www.tradingview.com/chart/?symbol=${fullSymbol}`;
+      _twExchangeCache[sym] = url;
+      return url;
+    }
+  } catch (e) {
+    Logger.log(`getTvUrl lookup 失敗 (${sym}): ${e.message}`);
   }
-  return `https://www.tradingview.com/chart/?symbol=TWSE:${symbol}`;
+
+  // 4. 最終 fallback（TWSE 猜測，大多數上市股票適用）
+  return `https://www.tradingview.com/chart/?symbol=TWSE:${sym}`;
 }
 
 function buildQuantDashboard(ss, strategyJson, stocks) {
