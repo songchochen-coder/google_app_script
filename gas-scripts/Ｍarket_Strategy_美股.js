@@ -262,15 +262,43 @@ function buildUSQuantDashboard(ss, strategyJson, stocks) {
     // ── 6 創30天以上新高股票 & 7 今日觀察名單 ─────────────────────────────
     sheet.getRange(currentRow, 2, 1, 5).merge().setValue('📈 創30天以上新高股票').setFontWeight('bold').setBackground(colors.subHeaderBg);
     currentRow++;
-    const newHighStr = (strategyJson.new_high_stocks || []).join('、') || '無';
-    sheet.getRange(currentRow, 2, 1, 5).merge().setValue(newHighStr).setFontColor('#FF9800').setWrap(true);
-    currentRow += 2;
+    const newHighList = strategyJson.new_high_stocks || [];
+    if (newHighList.length === 0) {
+      sheet.getRange(currentRow, 2, 1, 5).merge().setValue('無').setFontColor('#FF9800');
+      currentRow++;
+    } else {
+      newHighList.forEach((entry, idx) => {
+        const parts = String(entry).trim().split(/\s+/);
+        const sym = parts[0];    // e.g. "NVDA"
+        const label = parts.length > 1 ? parts.slice(1).join(' ') : sym;  // e.g. "Nvidia"
+        const url = getTvUrl(sym, stocks); // 先從 stocks 清單找初始 URL
+        const nameLink = `=HYPERLINK("${url}","${sym} ${label}")`;
+        sheet.getRange(currentRow, 2).setValue(idx === 0 ? '🔥創高' : '').setFontColor('#FF9800').setFontWeight('bold');
+        sheet.getRange(currentRow, 3, 1, 4).merge().setValue(nameLink).setFontColor('#FF9800');
+        currentRow++;
+      });
+    }
+    currentRow++;
 
     sheet.getRange(currentRow, 2, 1, 5).merge().setValue('📌 今日美股觀察名單').setFontWeight('bold').setBackground(colors.subHeaderBg);
     currentRow++;
-    const watchlistStr = (strategyJson.watchlist || []).join('、');
-    sheet.getRange(currentRow, 2, 1, 5).merge().setValue(watchlistStr).setFontColor(colors.accentUp).setWrap(true);
-    currentRow += 2;
+    const watchList = strategyJson.watchlist || [];
+    if (watchList.length === 0) {
+      sheet.getRange(currentRow, 2, 1, 5).merge().setValue('無').setFontColor(colors.accentUp);
+      currentRow++;
+    } else {
+      watchList.forEach((entry, idx) => {
+        const parts = String(entry).trim().split(/\s+/);
+        const sym = parts[0];
+        const label = parts.length > 1 ? parts.slice(1).join(' ') : sym;
+        const url = getTvUrl(sym, stocks);
+        const nameLink = `=HYPERLINK("${url}","${sym} ${label}")`;
+        sheet.getRange(currentRow, 2).setValue(idx === 0 ? '📌觀察' : '').setFontColor(colors.accentUp).setFontWeight('bold');
+        sheet.getRange(currentRow, 3, 1, 4).merge().setValue(nameLink).setFontColor(colors.accentUp);
+        currentRow++;
+      });
+    }
+    currentRow++;
   }
 
   // ── 加上外框與收尾排版 ──────────────────────────────────────────
