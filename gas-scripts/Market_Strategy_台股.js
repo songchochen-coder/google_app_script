@@ -83,14 +83,31 @@ function runMarketStrategy() {
 function analyzeMarketAndSectors(stocks) {
   const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
 
-  // 計算是否有創高 (這裡將 close >= high20 視為創 20/30 日以上新高，或者直接提供給 AI 判斷)
+  // ── 量化情緒指標：程式自動計算，再供 AI 綜合評分 ─────────────────
+  const total = stocks.length || 1;
+  const limitUpCount = stocks.filter(s => s.change >= 9.9).length;
+  const newHighCount = stocks.filter(s => s.high20 > 0 && s.close >= s.high20).length;
+  const highVolCount = stocks.filter(s => s.relVol10d && s.relVol10d >= 1.5).length;
+  const highRsiCount = stocks.filter(s => s.rsi && s.rsi >= 70).length;
+
+  const sentimentMetrics =
+    `【情緒客觀數據（程式計算，請綜合判斷給出1~10分）】\n` +
+    `- 股票總數: ${total} 檔\n` +
+    `- 漲停板: ${limitUpCount} 檔 (${((limitUpCount / total) * 100).toFixed(1)}%)\n` +
+    `- 創30天以上新高: ${newHighCount} 檔 (${((newHighCount / total) * 100).toFixed(1)}%)\n` +
+    `- 量能激增 (相對均量 > 1.5x): ${highVolCount} 檔 (${((highVolCount / total) * 100).toFixed(1)}%)\n` +
+    `- RSI 超買區 (>70): ${highRsiCount} 檔 (${((highRsiCount / total) * 100).toFixed(1)}%)`;
+
+  // ── 資料清單 ───────────────────────────────────────────────────────
   const stockListStr = stocks.map(s => {
     const isNewHigh = s.high20 > 0 && s.close >= s.high20;
-    return `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}, 最新價: ${s.close}, 波段高點: ${s.high20} ${isNewHigh ? '(🔥創30天以上新高)' : ''}`;
+    return `- ${s.name}(${s.symbol}): 漲幅 ${s.change}%, 題材: ${s.theme}${isNewHigh ? ', (🔥創高)' : ''}`;
   }).join('\n');
 
   const prompt = `你是頂尖的量化基金經理人，今天是 ${today}。
 請根據以下高動能股票清單（月漲幅超過20%），自動進行【盤前交易策略與板塊分析】。
+
+${sentimentMetrics}
 
 【原始資料】
 ${stockListStr}
@@ -99,13 +116,15 @@ ${stockListStr}
 1. 找出3~5個市場主流板塊
 2. 每個板塊找出領頭羊
 3. 找出補漲潛力股
-4. 判斷市場情緒
+4. 根據上方客觀數據，綜合判斷市場情緒並給出 1~10 分（1=極度恐懼, 5=中性, 10=極度貪婪）
 5. 提出盤前操作策略
-6. 根據清單內標記「創30天以上新高」的股票，整理出一份特別觀察名單
+6. 根據清單內標記「創高」的股票，整理出一份特別觀察名單
 
 【強制輸出結構】
 你必須回傳純 JSON 格式，不要包含 \`\`\`json 等 Markdown 標記，直接依據以下 Schema 輸出：
 {
+  "sentiment_score": 7,
+  "sentiment_label": "樂觀投機情緒",
   "market_view": "市場定調...（50字以內）",
   "risk_warning": "風險提示...（30字以內）",
   "strategies": ["核心策略一", "核心策略二", "核心策略三"],
@@ -210,6 +229,40 @@ function buildQuantDashboard(ss, strategyJson, stocks) {
   currentRow += 2;
 
   if (strategyJson) {
+    // ── 0 情緒計量錶 (儀表板最頂端) ─────────────────────────────────
+    const score = typeof strategyJson.sentiment_score === 'number' ? strategyJson.sentiment_score : 5;
+    const label = strategyJson.sentiment_label || '中性';
+
+    // 根據分數動態設定顏色與狀態文字
+    let scoreBg, statusText;
+    if (score >= 8) {
+      scoreBg = '#B71C1C'; statusText = '🔥 極度貪婪 / 請等待反轉訊號';
+    } else if (score >= 6) {
+      scoreBg = '#E65100'; statusText = '🟠 樂觀投機 / 順勢持股';
+    } else if (score >= 4) {
+      scoreBg = '#37474F'; statusText = '⚪ 中性觀望 / 等待方向選擇';
+    } else {
+      scoreBg = '#0D47A1'; statusText = '🔵 恐懼情緒 / 逢低佈局機會';
+    }
+
+    // 大數字分數格
+    sheet.getRange(currentRow, 2, 2, 2).merge()
+      .setValue(score)
+      .setFontSize(36).setFontWeight('bold')
+      .setBackground(scoreBg).setFontColor('#FFFFFF')
+      .setHorizontalAlignment('center').setVerticalAlignment('middle');
+    sheet.setRowHeight(currentRow, 35);
+    sheet.setRowHeight(currentRow + 1, 35);
+
+    // 標籤欄
+    sheet.getRange(currentRow, 4).setValue('市場情緒指數').setFontColor(colors.textSub).setFontSize(10);
+    sheet.getRange(currentRow + 1, 4).setValue(label).setFontColor('#FFFFFF').setFontWeight('bold');
+    sheet.getRange(currentRow, 5, 1, 2).merge().setValue(statusText)
+      .setFontColor(scoreBg === '#37474F' ? colors.textMain : scoreBg).setFontWeight('bold');
+    sheet.getRange(currentRow + 1, 5, 1, 2).merge().setValue('/ 10 分（1=極度恐懼  10=極度貪婪）')
+      .setFontColor(colors.textSub).setFontSize(10);
+    currentRow += 3;
+
     // ── 1 市場定調 & 2 風險提示 ───────────────────────────────────────
     sheet.getRange(currentRow, 2).setValue('大盤情緒：').setFontWeight('bold').setFontColor(colors.textSub);
     sheet.getRange(currentRow, 3, 1, 4).merge().setValue(strategyJson.market_view).setFontColor(colors.textMain);
