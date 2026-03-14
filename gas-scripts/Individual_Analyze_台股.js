@@ -61,10 +61,9 @@ function runIndividualAnalyze() {
         const theme = analysisMap[stock.symbol];
         if (theme) {
           const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
-          const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
-
-          // 判斷是否紅底漲停 (簡單判斷單日 > 9.9%)
-          const finalNameLink = stock.change >= 9.9 ? `="🔥 " & ${nameLink}` : nameLink;
+          // 判斷是否漲停
+          const displayName = stock.change >= 9.9 ? `🔥 ${stock.name}` : stock.name;
+          const finalNameLink = `=HYPERLINK("${tvUrl}","${displayName}")`;
 
           sheet.appendRow([
             stock.symbol,             // ticker
@@ -101,9 +100,8 @@ function runIndividualAnalyze() {
           const retryMap = parseBatchResponse(retryResp, [stock]);
           const theme = retryMap[stock.symbol] || retryResp.trim() || '無法取得分析';
           const tvUrl = `https://www.tradingview.com/chart/?symbol=${stock.exchange}:${stock.symbol}`;
-          const nameLink = `=HYPERLINK("${tvUrl}","${stock.name}")`;
-
-          const finalNameLink = stock.change >= 9.9 ? `="🔥 " & ${nameLink}` : nameLink;
+          const displayName = stock.change >= 9.9 ? `🔥 ${stock.name}` : stock.name;
+          const finalNameLink = `=HYPERLINK("${tvUrl}","${displayName}")`;
 
           sheet.appendRow([
             stock.symbol, finalNameLink, stock.sector, stock.industry,
